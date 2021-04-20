@@ -13,7 +13,7 @@ def parse_model_cfg(path):
     with open(path, 'r') as f:
         lines = f.read().split('\n')
     lines = [x for x in lines if x and not x.startswith('#')]
-    lines = [x.rstrip().lstrip() for x in lines]  # get rid of fringe whitespaces
+    lines = [x.rstrip().lstrip() for x in lines]  # get rid of fringe whitespaces  ## 删除头尾空格，用strip()也是一样的效果
     mdefs = []  # module definitions
     for line in lines:
         if line.startswith('['):  # This marks the start of a new block

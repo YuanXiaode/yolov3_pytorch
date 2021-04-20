@@ -20,7 +20,7 @@ def detect(save_img=False):
     model = Darknet(opt.cfg, imgsz)
 
     # Load weights
-    attempt_download(weights)
+    attempt_download(weights)  ## in model
     if weights.endswith('.pt'):  # pytorch format
         model.load_state_dict(torch.load(weights, map_location=device)['model'])
     else:  # darknet format
@@ -63,7 +63,7 @@ def detect(save_img=False):
     vid_path, vid_writer = None, None
     if webcam:
         view_img = True
-        torch.backends.cudnn.benchmark = True  # set True to speed up constant image size inference
+        torch.backends.cudnn.benchmark = True  # set True to speed up constant image size inference  详情见：zhuanlan.zhihu.com/p/73711222
         dataset = LoadStreams(source, img_size=imgsz)
     else:
         save_img = True
