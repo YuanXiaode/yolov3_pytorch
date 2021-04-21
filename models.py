@@ -41,7 +41,7 @@ def create_modules(module_defs, img_size, cfg):
             if bn:
                 modules.add_module('BatchNorm2d', nn.BatchNorm2d(filters, momentum=0.03, eps=1E-4))
             else:
-                routs.append(i)  # detection output (goes into yolo layer)
+                routs.append(i)  # detection output (goes into yolo layer)  yolo layer 前一层都是没有BN的
 
             if mdef['activation'] == 'leaky':  # activation study https://github.com/ultralytics/yolov3/issues/441
                 modules.add_module('activation', nn.LeakyReLU(0.1, inplace=True))
@@ -71,7 +71,7 @@ def create_modules(module_defs, img_size, cfg):
         elif mdef['type'] == 'upsample':
             if ONNX_EXPORT:  # explicitly state size, avoid scale_factor
                 g = (yolo_index + 1) * 2 / 32  # gain
-                modules = nn.Upsample(size=tuple(int(x * g) for x in img_size))  # img_size = (320, 192)
+                modules = nn.Upsample(size=tuple(int(x * g) for x in img_size))  # img_size = (320, 192)  为啥这么做？
             else:
                 modules = nn.Upsample(scale_factor=mdef['stride'])
 
@@ -103,7 +103,7 @@ def create_modules(module_defs, img_size, cfg):
                                 layers=layers,  # output layers
                                 stride=stride[yolo_index])
 
-            # Initialize preceding Conv2d() bias (https://arxiv.org/pdf/1708.02002.pdf section 3.3)
+            # Initialize preceding Conv2d() bias (https://arxiv.org/pdf/1708.02002.pdf section 3.3)  focal loss
             try:
                 j = layers[yolo_index] if 'from' in mdef else -1
                 # If previous layer is a dropout layer, get the one before
@@ -145,7 +145,7 @@ class YOLOLayer(nn.Module):
         self.nc = nc  # number of classes (80)
         self.no = nc + 5  # number of outputs (85)
         self.nx, self.ny, self.ng = 0, 0, 0  # initialize number of x, y gridpoints
-        self.anchor_vec = self.anchors / self.stride
+        self.anchor_vec = self.anchors / self.stride # 转化到特征图尺度
         self.anchor_wh = self.anchor_vec.view(1, self.na, 1, 1, 2)
 
         if ONNX_EXPORT:
@@ -169,14 +169,14 @@ class YOLOLayer(nn.Module):
         ASFF = False  # https://arxiv.org/abs/1911.09516
         if ASFF:
             i, n = self.index, self.nl  # index in layers, number of layers
-            p = out[self.layers[i]]
+            p = out[self.layers[i]]  # layers: ex. (88,99,110)
             bs, _, ny, nx = p.shape  # bs, 255, 13, 13
             if (self.nx, self.ny) != (nx, ny):
                 self.create_grids((nx, ny), p.device)
 
             # outputs and weights
             # w = F.softmax(p[:, -n:], 1)  # normalized weights
-            w = torch.sigmoid(p[:, -n:]) * (2 / n)  # sigmoid weights (faster)
+            w = torch.sigmoid(p[:, -n:]) * (2 / n)  # sigmoid weights (faster)  应该是out的axis = 1多出了n维代表n个weight
             # w = w / w.sum(1).unsqueeze(1)  # normalize across layer dimension
 
             # weighted ASFF sum
@@ -200,24 +200,24 @@ class YOLOLayer(nn.Module):
             return p
 
         elif ONNX_EXPORT:
-            # Avoid broadcasting for ANE operations
+            # Avoid broadcasting for ANE operations  相当于把多维数据view成(m,2)，目的是防止计算时候自动触发广播
             m = self.na * self.nx * self.ny
-            ng = 1. / self.ng.repeat(m, 1)
-            grid = self.grid.repeat(1, self.na, 1, 1, 1).view(m, 2)
-            anchor_wh = self.anchor_wh.repeat(1, 1, self.nx, self.ny, 1).view(m, 2) * ng
+            ng = 1. / self.ng.repeat(m, 1)  ## (m,2)，1 / 特征图尺寸
+            grid = self.grid.repeat(1, self.na, 1, 1, 1).view(m, 2)  ## (1,na,nx,ny,2) -> (m,2)
+            anchor_wh = self.anchor_wh.repeat(1, 1, self.nx, self.ny, 1).view(m, 2) * ng  ## 这一算，anchor_wh是归一化的值
 
             p = p.view(m, self.no)
             xy = torch.sigmoid(p[:, 0:2]) + grid  # x, y
             wh = torch.exp(p[:, 2:4]) * anchor_wh  # width, height
             p_cls = torch.sigmoid(p[:, 4:5]) if self.nc == 1 else \
-                torch.sigmoid(p[:, 5:self.no]) * torch.sigmoid(p[:, 4:5])  # conf
-            return p_cls, xy * ng, wh
+                torch.sigmoid(p[:, 5:self.no]) * torch.sigmoid(p[:, 4:5])  # conf 置信度x分类概率
+            return p_cls, xy * ng, wh   ## 注意 xy * ng 后也是归一化的值
 
         else:  # inference
             io = p.clone()  # inference output
             io[..., :2] = torch.sigmoid(io[..., :2]) + self.grid  # xy
             io[..., 2:4] = torch.exp(io[..., 2:4]) * self.anchor_wh  # wh yolo method
-            io[..., :4] *= self.stride
+            io[..., :4] *= self.stride  ## x stride 后，从特征图尺度转化成了input_img的尺度
             torch.sigmoid_(io[..., 4:])
             return io.view(bs, -1, self.no), p  # view [1, 3, 13, 13, 85] as [1, 507, 85]
 
