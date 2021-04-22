@@ -12,7 +12,7 @@ def create_modules(module_defs, img_size, cfg):
     _ = module_defs.pop(0)  # cfg training hyperparams (unused)
     output_filters = [3]  # input channels
     module_list = nn.ModuleList()
-    routs = []  # list of layers which rout to deeper layers
+    routs = []  # list of layers which rout to deeper layers  包括shortcut、route和yolo层前的Conv层
     yolo_index = -1
 
     for i, mdef in enumerate(module_defs):
@@ -85,6 +85,7 @@ def create_modules(module_defs, img_size, cfg):
             layers = mdef['from']
             filters = output_filters[-1]
             routs.extend([i + l if l < 0 else l for l in layers])
+            ## 若 i = 4, layers = -3, 就会将 1 加入routs，加入touts的层的输出会在 WeightedFeatureFusion 的forward方法中的outputs用到
             modules = WeightedFeatureFusion(layers=layers, weight='weights_type' in mdef)
 
         elif mdef['type'] == 'reorg3d':  # yolov3-spp-pan-scale
@@ -95,7 +96,7 @@ def create_modules(module_defs, img_size, cfg):
             stride = [32, 16, 8]  # P5, P4, P3 strides
             if any(x in cfg for x in ['panet', 'yolov4', 'cd53']):  # stride order reversed
                 stride = list(reversed(stride))
-            layers = mdef['from'] if 'from' in mdef else []
+            layers = mdef['from'] if 'from' in mdef else []  ## 只有ASFF才有from
             modules = YOLOLayer(anchors=mdef['anchors'][mdef['mask']],  # anchor list
                                 nc=mdef['classes'],  # number of classes
                                 img_size=img_size,  # (416, 416)
@@ -103,15 +104,18 @@ def create_modules(module_defs, img_size, cfg):
                                 layers=layers,  # output layers
                                 stride=stride[yolo_index])
 
-            # Initialize preceding Conv2d() bias (https://arxiv.org/pdf/1708.02002.pdf section 3.3)  focal loss
+            # Initialize preceding Conv2d() bias (https://arxiv.org/pdf/1708.02002.pdf section 3.3)  Focal Loss for Dense Object Detection
             try:
-                j = layers[yolo_index] if 'from' in mdef else -1
+                j = layers[yolo_index] if 'from' in mdef else -1  ## j就是指当前yolo层
                 # If previous layer is a dropout layer, get the one before
                 if module_list[j].__class__.__name__ == 'Dropout':
                     j -= 1
                 bias_ = module_list[j][0].bias  # shape(255,)
                 bias = bias_[:modules.no * modules.na].view(modules.na, -1)  # shape(3,85)
+                # 和论文有区别，难理解，我试着理解下：训练初始时，负样本（背景）远多于正样本，一般Conv层W初始化为正态分布，b=0，从而输出Y=WX+b
+                # 是中性的，负样本产生的loss将会很大，影响训练稳定性。于是将置信度的b值初始化为一个负数，使使出偏向于负样本，这样初始产生的loss就小了。
                 bias[:, 4] += -4.5  # obj
+                # 这是为了使分类的输出 sigmoid(WX+b)=1/nc，我算了一下 b = log(1/(nc-1))-WX，他这个值估计也是调出来的
                 bias[:, 5:] += math.log(0.6 / (modules.nc - 0.99))  # cls (sigmoid(p) = 1/nc)
                 module_list[j][0].bias = torch.nn.Parameter(bias_, requires_grad=bias_.requires_grad)
             except:
@@ -176,7 +180,7 @@ class YOLOLayer(nn.Module):
 
             # outputs and weights
             # w = F.softmax(p[:, -n:], 1)  # normalized weights
-            w = torch.sigmoid(p[:, -n:]) * (2 / n)  # sigmoid weights (faster)  应该是out的axis = 1多出了n维代表n个weight
+            w = torch.sigmoid(p[:, -n:]) * (2 / n)  # sigmoid weights (faster)  应该是out的axis = 1从255->258,多出的3维度表示3个权重图
             # w = w / w.sum(1).unsqueeze(1)  # normalize across layer dimension
 
             # weighted ASFF sum
@@ -238,11 +242,12 @@ class Darknet(nn.Module):
         self.seen = np.array([0], dtype=np.int64)  # (int64) number of images seen during training
         self.info(verbose) if not ONNX_EXPORT else None  # print model description
 
-    def forward(self, x, augment=False, verbose=False):
+    def forward(self, x, augment=False, verbose=False): # x shape (16,3,256,416)
 
         if not augment:
             return self.forward_once(x)
         else:  # Augment images (inference and test only) https://github.com/ultralytics/yolov3/issues/931
+            # 这里其实就是多尺度 inference，应该可以涨些点
             img_size = x.shape[-2:]  # height, width
             s = [0.83, 0.67]  # scales
             y = []
@@ -305,17 +310,21 @@ class Darknet(nn.Module):
         if self.training:  # train
             return yolo_out
         elif ONNX_EXPORT:  # export
+            # yolo_out 是个list, 中每个元素都是 (cls,xy,wh)
+            # zip(*yolo_out)后大概是 (cls1,cls2...),(xy1,xy2...),(wh1,wh2,...)
+            # torch.cat(x, 0)后大概是: [好长一串cls1,好长一串xy，好长一串wh]
             x = [torch.cat(x, 0) for x in zip(*yolo_out)]
             return x[0], torch.cat(x[1:3], 1)  # scores, boxes: 3780x80, 3780x4
         else:  # inference or test
-            x, p = zip(*yolo_out)  # inference output, training output
-            x = torch.cat(x, 1)  # cat yolo outputs
-            if augment:  # de-augment results
-                x = torch.split(x, nb, dim=0)
+            # inference output shape [(bs,3x13x13,85)...], training output shape[(bs, 3, 13, 13, 85)...]  列表里是3个元素（3个yolo层）
+            x, p = zip(*yolo_out)
+            x = torch.cat(x, 1)  # cat yolo outputs  shape (bs,10647,85)
+            if augment:  # de-augment results   augment时的输入是[x ，x_s1， x_s2]三张图,因此 x shape: (3bs,10647,85)
+                x = torch.split(x, nb, dim=0)  # shape [A B C]，每个shape 都是 (bs,10647,85)  和 np.split不一样
                 x[1][..., :4] /= s[0]  # scale
                 x[1][..., 0] = img_size[1] - x[1][..., 0]  # flip lr
                 x[2][..., :4] /= s[1]  # scale
-                x = torch.cat(x, 1)
+                x = torch.cat(x, 1)  # shape:(10647x3,85)
             return x, p
 
     def fuse(self):
@@ -323,7 +332,7 @@ class Darknet(nn.Module):
         print('Fusing layers...')
         fused_list = nn.ModuleList()
         for a in list(self.children())[0]:
-            if isinstance(a, nn.Sequential):
+            if isinstance(a, nn.Sequential): # 一个Sequential是这样的结构：conv + bn + activate + maxpool, 其中后三层可能有也可能没有
                 for i, b in enumerate(a):
                     if isinstance(b, nn.modules.batchnorm.BatchNorm2d):
                         # fuse this bn layer with the previous conv2d layer
@@ -429,7 +438,7 @@ def convert(cfg='cfg/yolov3-spp.cfg', weights='weights/yolov3-spp.weights'):
     # Load weights and save
     if weights.endswith('.pt'):  # if PyTorch format
         model.load_state_dict(torch.load(weights, map_location='cpu')['model'])
-        target = weights.rsplit('.', 1)[0] + '.weights'
+        target = weights.rsplit('.', 1)[0] + '.weights'  ## xx.pt -> xx.weights
         save_weights(model, path=target, cutoff=-1)
         print("Success: converted '%s' to '%s'" % (weights, target))
 

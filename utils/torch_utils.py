@@ -69,7 +69,7 @@ def find_modules(model, mclass=nn.Conv2d):
 
 def fuse_conv_and_bn(conv, bn):
     # https://tehnokv.com/posts/fusing-batchnorm-and-conv/
-    with torch.no_grad():
+    with torch.no_grad(): # 就是将BN乘的矩阵和Conv的矩阵相乘合一起
         # init
         fusedconv = torch.nn.Conv2d(conv.in_channels,
                                     conv.out_channels,
@@ -78,7 +78,7 @@ def fuse_conv_and_bn(conv, bn):
                                     padding=conv.padding,
                                     bias=True)
 
-        # prepare filters
+        # prepare filters   bn.weight 就是公式的gamma，bn.bias是公式的bata
         w_conv = conv.weight.clone().view(conv.out_channels, -1)
         w_bn = torch.diag(bn.weight.div(torch.sqrt(bn.eps + bn.running_var)))
         fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.size()))
@@ -107,7 +107,7 @@ def model_info(model, verbose=False):
 
     try:  # FLOPS
         from thop import profile
-        macs, _ = profile(model, inputs=(torch.zeros(1, 3, 480, 640),), verbose=False)
+        macs, _ = profile(model, inputs=(torch.zeros(1, 3, 480, 640),), verbose=False)  ## 好东西，统计模型计算量FLOPs
         fs = ', %.1f GFLOPS' % (macs / 1E9 * 2)
     except:
         fs = ''
@@ -139,7 +139,7 @@ def scale_img(img, ratio=1.0, same_shape=True):  # img(16,3,256,416), r=ratio
     img = F.interpolate(img, size=s, mode='bilinear', align_corners=False)  # resize
     if not same_shape:  # pad/crop img
         gs = 64  # (pixels) grid size
-        h, w = [math.ceil(x * ratio / gs) * gs for x in (h, w)]
+        h, w = [math.ceil(x * ratio / gs) * gs for x in (h, w)]  ## 补成64的倍数
     return F.pad(img, [0, w - s[1], 0, h - s[0]], value=0.447)  # value = imagenet mean
 
 

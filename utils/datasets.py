@@ -60,7 +60,7 @@ class LoadImages:  # for inference
         self.video_flag = [False] * nI + [True] * nV
         self.mode = 'images'
         if any(videos):
-            self.new_video(videos[0])  # new video
+            self.new_video(videos[0])  # new video  为何要先打开一个视频?
         else:
             self.cap = None
         assert self.nF > 0, 'No images or videos found in %s. Supported formats are:\nimages: %s\nvideos: %s' % \
@@ -206,7 +206,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = cap.get(cv2.CAP_PROP_FPS) % 100
             _, self.imgs[i] = cap.read()  # guarantee first frame
-            thread = Thread(target=self.update, args=([i, cap]), daemon=True)
+            thread = Thread(target=self.update, args=([i, cap]), daemon=True)  ## 每个进程处理一个sources
             print(' success (%gx%g at %.2f FPS).' % (w, h, fps))
             thread.start()
         print('')  # newline
