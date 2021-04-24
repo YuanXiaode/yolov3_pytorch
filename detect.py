@@ -26,7 +26,7 @@ def detect(save_img=False):
     else:  # darknet format
         load_darknet_weights(model, weights)
 
-    # Second-stage classifier
+    # applies a second stage classifier to yolo outputs
     classify = False
     if classify:
         modelc = torch_utils.load_classifier(name='resnet101', n=2)  # initialize
@@ -77,6 +77,7 @@ def detect(save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img.float()) if device.type != 'cpu' else None  # run once
+    print("*" * 50)
     for path, img, im0s, vid_cap in dataset:  ## 路径，处理后的图，未处理的图，视频的cap
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -88,7 +89,6 @@ def detect(save_img=False):
         t1 = torch_utils.time_synchronized()
         pred = model(img, augment=opt.augment)[0]
         t2 = torch_utils.time_synchronized()
-
         # to float
         if half:
             pred = pred.float()
@@ -97,7 +97,8 @@ def detect(save_img=False):
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres,
                                    multi_label=False, classes=opt.classes, agnostic=opt.agnostic_nms)
 
-        # Apply Classifier
+
+        # Apply Classifier  就是进一步分类而已
         if classify:
             pred = apply_classifier(pred, modelc, img, im0s)
 
@@ -116,9 +117,9 @@ def detect(save_img=False):
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
                 # Print results
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    s += '%g %ss, ' % (n, names[int(c)])  # add to string
+                for c in det[:, -1].unique():  ## det[:, -1] 保存的是 class_id
+                    n = (det[:, -1] == c).sum()  # detections per class  ## 每个class的目标数目
+                    s += '%g %ss, ' % (n, names[int(c)])  # add to string   ex. 4 persons
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
@@ -128,7 +129,7 @@ def detect(save_img=False):
                             file.write(('%g ' * 5 + '\n') % (cls, *xywh))  # label format
 
                     if save_img or view_img:  # Add bbox to image
-                        label = '%s %.2f' % (names[int(cls)], conf)
+                        label = '%s %.2f' % (names[int(cls)], conf)  # persion 0.71
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)])
 
             # Print time (inference + NMS)
@@ -144,7 +145,7 @@ def detect(save_img=False):
             if save_img:
                 if dataset.mode == 'images':
                     cv2.imwrite(save_path, im0)
-                else:
+                else:  ## 这个是保存视频的
                     if vid_path != save_path:  # new video
                         vid_path = save_path
                         if isinstance(vid_writer, cv2.VideoWriter):

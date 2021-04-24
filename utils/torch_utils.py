@@ -46,7 +46,7 @@ def select_device(device='', apex=False, batch_size=None):
 
 
 def time_synchronized():
-    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    torch.cuda.synchronize() if torch.cuda.is_available() else None  ## 等待gpu计算完成
     return time.time()
 
 
