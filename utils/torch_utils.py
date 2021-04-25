@@ -31,6 +31,7 @@ def select_device(device='', apex=False, batch_size=None):
         ng = torch.cuda.device_count()
         if ng > 1 and batch_size:  # check that batch_size is compatible with device_count
             assert batch_size % ng == 0, 'batch-size %g not multiple of GPU count %g' % (batch_size, ng)
+        # _CudaDeviceProperties(name='GeForce GTX 1060 6GB', major=6, minor=1, total_memory=6077MB, multi_processor_count=10)
         x = [torch.cuda.get_device_properties(i) for i in range(ng)]
         s = 'Using CUDA ' + ('Apex ' if apex else '')  # apex for mixed precision https://github.com/NVIDIA/apex
         for i in range(0, ng):

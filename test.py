@@ -68,7 +68,7 @@ def test(cfg,
         dataloader = DataLoader(dataset,
                                 batch_size=batch_size,
                                 num_workers=min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8]),
-                                pin_memory=True,
+                                pin_memory=True, ## 锁页内存，和显存交换更快
                                 collate_fn=dataset.collate_fn)
 
     seen = 0
@@ -81,7 +81,7 @@ def test(cfg,
     jdict, stats, ap, ap_class = [], [], [], []
     for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
-        targets = targets.to(device)
+        targets = targets.to(device) # [bs,image_id,class,xywh]
         nb, _, height, width = imgs.shape  # batch size, channels, height, width
         whwh = torch.Tensor([width, height, width, height]).to(device)
 
@@ -102,6 +102,8 @@ def test(cfg,
             t1 += torch_utils.time_synchronized() - t
 
         # Statistics per image
+        ## targets shape (bs,n_box for per image,6)，6d 指的是 image_id,class,xywh
+        ## output shape  (bs,num_box for per image,6), 6d 指的是 xyxy + conf + class
         for si, pred in enumerate(output):
             labels = targets[targets[:, 0] == si, 1:]
             nl = len(labels)
@@ -125,6 +127,7 @@ def test(cfg,
                 # [{"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}, ...
                 image_id = int(Path(paths[si]).stem.split('_')[-1])
                 box = pred[:, :4].clone()  # xyxy
+                # imgs是处理后的图，shapes 的前两维是处理前的图像迟钝
                 scale_coords(imgs[si].shape[1:], box, shapes[si][0], shapes[si][1])  # to original shape
                 box = xyxy2xywh(box)  # xywh
                 box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
@@ -138,13 +141,13 @@ def test(cfg,
             correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool, device=device)
             if nl:
                 detected = []  # target indices
-                tcls_tensor = labels[:, 0]
+                tcls_tensor = labels[:, 0] ## 类别
 
                 # target boxes
                 tbox = xywh2xyxy(labels[:, 1:5]) * whwh
 
                 # Per target class
-                for cls in torch.unique(tcls_tensor):
+                for cls in torch.unique(tcls_tensor): # 遍历这张图片的label的所有类别
                     ti = (cls == tcls_tensor).nonzero().view(-1)  # target indices
                     pi = (cls == pred[:, 5]).nonzero().view(-1)  # prediction indices
 
@@ -154,7 +157,7 @@ def test(cfg,
                         ious, i = box_iou(pred[pi, :4], tbox[ti]).max(1)  # best ious, indices
 
                         # Append detections
-                        for j in (ious > iouv[0]).nonzero():
+                        for j in (ious > iouv[0]).nonzero():  ## 只记录大于 iouv[0] 的 box 的索引
                             d = ti[i[j]]  # detected target
                             if d not in detected:
                                 detected.append(d)

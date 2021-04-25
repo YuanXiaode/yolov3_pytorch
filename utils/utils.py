@@ -475,7 +475,7 @@ def build_targets(p, targets, model):
 
     return tcls, tbox, indices, anch
 
-# prediction shape (bs,3x13x13,85)
+# prediction shape (image_num,3x13x13,85)
 def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=True, classes=None, agnostic=False):
     """
     Performs  Non-Maximum Suppression on inference results
@@ -549,7 +549,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=T
         if (time.time() - t) > time_limit:
             break  # time limit exceeded
 
-    return output
+    return output  ## (image_num,box for per image,6)
 
 
 def get_yolo_layers(model):
@@ -796,10 +796,11 @@ def fitness(x):
     return (x[:, :4] * w).sum(1)
 
 
+# 输入的output : [batch_id,box for per image,xyxy + conf + class]
 def output_to_target(output, width, height):
     """
     Convert a YOLO model output to target format
-    [batch_id, class_id, x, y, w, h, conf]
+    [batch_id, class_id, x , y , w , h , conf]
     """
     if isinstance(output, torch.Tensor):
         output = output.cpu().numpy()
@@ -855,7 +856,8 @@ def plot_wh_methods():  # from utils.utils import *; plot_wh_methods()
     fig.tight_layout()
     fig.savefig('comparison.png', dpi=200)
 
-
+# targets: gt:  [batch_id, n_box for per image, image_id + class + xywh]
+# targets: pre: [batch_id,batch_id + class_id + x + y + w + h + conf]
 def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max_size=640, max_subplots=16):
     tl = 3  # line thickness
     tf = max(tl - 1, 1)  # font thickness
@@ -903,6 +905,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
             img = cv2.resize(img, (w, h))
 
         mosaic[block_y:block_y + h, block_x:block_x + w, :] = img
+        # [batch_id, class_id, 6]
         if len(targets) > 0:
             image_targets = targets[targets[:, 0] == i]
             boxes = xywh2xyxy(image_targets[:, 2:6]).T

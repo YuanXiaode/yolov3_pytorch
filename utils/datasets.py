@@ -30,7 +30,7 @@ def exif_size(img):
     # Returns exif-corrected PIL size
     s = img.size  # (width, height)
     try:
-        rotation = dict(img._getexif().items())[orientation]
+        rotation = dict(img._getexif().items())[orientation]  ## 获取图像exif中的转动信息
         if rotation == 6:  # rotation 270
             s = (s[1], s[0])
         elif rotation == 8:  # rotation 90
@@ -306,7 +306,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # Rectangular Training  https://github.com/ultralytics/yolov3/issues/232
         if self.rect:
-            # Sort by aspect ratio
+            # Sort by aspect ratio  ## 从小到大排序
             s = self.shapes  # wh
             ar = s[:, 1] / s[:, 0]  # aspect ratio
             irect = ar.argsort()
@@ -316,6 +316,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             ar = ar[irect]
 
             # Set training image shapes
+            ## ！！！注意这里的shape应该是hw，和前面的self.shapes反过来了，坑！
+            ## 否则在letterbox函数里会解释不清
             shapes = [[1, 1]] * nb
             for i in range(nb):
                 ari = ar[bi == i]
@@ -328,8 +330,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / 32. + pad).astype(np.int) * 32
 
         # Cache labels
-        self.imgs = [None] * n
-        self.labels = [np.zeros((0, 5), dtype=np.float32)] * n
+        self.imgs = [None] * n  # number of images
+        self.labels = [np.zeros((0, 5), dtype=np.float32)] * n  ## class,xywh
         create_datasubset, extract_bounding_boxes, labels_loaded = False, False, False
         nm, nf, ne, ns, nd = 0, 0, 0, 0, 0  # number missing, found, empty, datasubset, duplicate
         np_labels_path = str(Path(self.label_files[0]).parent) + '.npy'  # saved labels in *.npy file
@@ -345,7 +347,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         pbar = tqdm(self.label_files)
         for i, file in enumerate(pbar):
             if labels_loaded:
-                l = self.labels[i]
+                l = self.labels[i]  ## i图片的label
                 # np.savetxt(file, l, '%g')  # save *.txt from *.npy file
             else:
                 try:
@@ -384,7 +386,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                     img = cv2.imread(str(p))
                     h, w = img.shape[:2]
                     for j, x in enumerate(l):
-                        f = '%s%sclassifier%s%g_%g_%s' % (p.parent.parent, os.sep, os.sep, x[0], j, p.name)
+                        f = '%s%sclassifier%s%g_%g_%s' % (p.parent.parent, os.sep, os.sep, x[0], j, p.name) # path/sclassifier/1_0_image_name
                         if not os.path.exists(Path(f).parent):
                             os.makedirs(Path(f).parent)  # make new output folder
 
@@ -419,7 +421,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # Detect corrupted images https://medium.com/joelthchao/programmatically-detect-corrupted-image-8c1b2006c3d3
         detect_corrupted_images = False
-        if detect_corrupted_images:
+        if detect_corrupted_images:  ## 检测坏图
             from skimage import io  # conda install -c conda-forge scikit-image
             for file in tqdm(self.img_files, desc='Detecting corrupted images'):
                 try:
@@ -437,7 +439,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
     #     return self
 
     def __getitem__(self, index):
-        if self.image_weights:
+        if self.image_weights:  ## ？？
             index = self.indices[index]
 
         hyp = self.hyp
@@ -458,6 +460,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             # Load labels
             labels = []
             x = self.labels[index]
+
             if x.size > 0:
                 # Normalized xywh to pixel xyxy format
                 labels = x.copy()
@@ -508,7 +511,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         labels_out = torch.zeros((nL, 6))
         if nL:
-            labels_out[:, 1:] = torch.from_numpy(labels)
+            labels_out[:, 1:] = torch.from_numpy(labels)  ## image index, class, xywh
 
         # Convert
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -516,6 +519,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         return torch.from_numpy(img), labels_out, self.img_files[index], shapes
 
+    ## 输入的batch 形式为(img,label,file,shape),(img,label,file,shape),...  （有bs个元组）
+    ## zip(*batch) 后变成 (img,img,img...), (label,label,...), (file,file,...) , (shape,shape,...)
+    ## torch.stack(img,0) 后变成 [img,img,img...]...  第一个维度是bs
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed
@@ -523,7 +529,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             l[:, 0] = i  # add target image index for build_targets()
         return torch.stack(img, 0), torch.cat(label, 0), path, shapes
 
-
+# 读取图片，并保持长宽比将最大边缩放至416
 def load_image(self, index):
     # loads 1 image from dataset, returns img, original hw, resized hw
     img = self.imgs[index]
@@ -560,6 +566,7 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     #         img[:, :, i] = cv2.equalizeHist(img[:, :, i])
 
 
+# 就是4图合一 + 仿射变换
 def load_mosaic(self, index):
     # loads images in a mosaic
 
@@ -574,8 +581,8 @@ def load_mosaic(self, index):
         # place img in img4
         if i == 0:  # top left
             img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
-            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
-            x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
+            x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image) img4的中需要填充的区域
+            x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image) img中需要填充到img4中的区域
         elif i == 1:  # top right
             x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, s * 2), yc
             x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
@@ -617,7 +624,7 @@ def load_mosaic(self, index):
 
     return img4, labels4
 
-
+# new_shape : hw
 def letterbox(img, new_shape=(416, 416), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True):
     # Resize image to a 32-pixel-multiple rectangle https://github.com/ultralytics/yolov3/issues/232
     shape = img.shape[:2]  # current shape [height, width]
@@ -638,7 +645,7 @@ def letterbox(img, new_shape=(416, 416), color=(114, 114, 114), auto=True, scale
     elif scaleFill:  # stretch  直接缩放，不管长宽比
         dw, dh = 0.0, 0.0
         new_unpad = new_shape
-        ratio = new_shape[0] / shape[1], new_shape[1] / shape[0]  # width, height ratios
+        ratio = new_shape[0] / shape[1], new_shape[1] / shape[0]  # width, height ratios   这里写错了 ， new_shape[1] / shape[1], new_shape[0] / shape[0]
 
     dw /= 2  # divide padding into 2 sides
     dh /= 2
@@ -651,6 +658,7 @@ def letterbox(img, new_shape=(416, 416), color=(114, 114, 114), auto=True, scale
     return img, ratio, (dw, dh)
 
 
+# 这个函数实现img和label中的坐标的仿射变换
 def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10, border=0):
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
     # https://medium.com/uruvideo/dataset-augmentation-with-random-homographies-a8f4b44830d4
@@ -661,24 +669,24 @@ def random_affine(img, targets=(), degrees=10, translate=.1, scale=.1, shear=10,
 
     # Rotation and Scale
     R = np.eye(3)
-    a = random.uniform(-degrees, degrees)
+    a = random.uniform(-degrees, degrees)  ## 旋转
     # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
-    s = random.uniform(1 - scale, 1 + scale)
+    s = random.uniform(1 - scale, 1 + scale) ## 缩放
     # s = 2 ** random.uniform(-scale, scale)
     R[:2] = cv2.getRotationMatrix2D(angle=a, center=(img.shape[1] / 2, img.shape[0] / 2), scale=s)
 
-    # Translation
+    # Translation  平移
     T = np.eye(3)
     T[0, 2] = random.uniform(-translate, translate) * img.shape[0] + border  # x translation (pixels)
     T[1, 2] = random.uniform(-translate, translate) * img.shape[1] + border  # y translation (pixels)
 
-    # Shear
+    # Shear  剪切
     S = np.eye(3)
     S[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
     S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
 
     # Combined rotation matrix
-    M = S @ T @ R  # ORDER IS IMPORTANT HERE!!
+    M = S @ T @ R  # ORDER IS IMPORTANT HERE!!  仿射变换
     if (border != 0) or (M != np.eye(3)).any():  # image changed
         img = cv2.warpAffine(img, M[:2], dsize=(width, height), flags=cv2.INTER_LINEAR, borderValue=(114, 114, 114))
 
