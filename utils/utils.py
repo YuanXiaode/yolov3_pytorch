@@ -475,7 +475,8 @@ def build_targets(p, targets, model):
 
     return tcls, tbox, indices, anch
 
-# prediction shape (image_num,3x13x13,85)
+# prediction shape (bs,3x13x13,85)
+# 输出的 output 是一个list，有bs个元素，每个元素shape (num_box,6)  6指的是[x1,y1,x2,y2, conf, class_id]
 def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=True, classes=None, agnostic=False):
     """
     Performs  Non-Maximum Suppression on inference results
@@ -510,12 +511,15 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=T
         # Detections matrix nx6 (xyxy, conf, cls)
         if multi_label:
             i, j = (x[:, 5:] > conf_thres).nonzero().t()  ## i,j:非零值的索引
-            x = torch.cat((box[i], x[i, j + 5].unsqueeze(1), j.float().unsqueeze(1)), 1)    ## (30,6) (30,xyxy conf class_id)
+            x = torch.cat((box[i], x[i, j + 5].unsqueeze(1), j.float().unsqueeze(1)), 1)    ## (30,6) [x1,y1,x2,y2, conf, class_id]
         else:  # best class only
             conf, j = x[:, 5:].max(1)
             x = torch.cat((box, conf.unsqueeze(1), j.float().unsqueeze(1)), 1)[conf > conf_thres]
 
         # Filter by class
+        # j.view(-1, 1) shape (30,1), torch.tensor(classes, device=j.device) shape (class的数目)
+        # (j.view(-1, 1) == torch.tensor(classes, device=j.device)) shape = (30，class的数目)   广播计算
+        # .any(1) 后的维度是 (30)  (True,True,False.....)
         if classes:
             x = x[(j.view(-1, 1) == torch.tensor(classes, device=j.device)).any(1)]
 
@@ -534,7 +538,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=T
         # Batched NMS
         c = x[:, 5] * 0 if agnostic else x[:, 5]  # classes
         boxes, scores = x[:, :4].clone() + c.view(-1, 1) * max_wh, x[:, 4]  # boxes (offset by class), scores   解释：+ c.view(-1, 1) * max_wh 将不同的class的坐标分开，聪明呀~
-        i = torchvision.ops.boxes.nms(boxes, scores, iou_thres)
+        i = torchvision.ops.boxes.nms(boxes, scores, iou_thres)  ## shape (1)
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
             try:  # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
                 iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix  (5,29)
@@ -549,7 +553,7 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=T
         if (time.time() - t) > time_limit:
             break  # time limit exceeded
 
-    return output  ## (image_num,box for per image,6)
+    return output
 
 
 def get_yolo_layers(model):
@@ -796,7 +800,7 @@ def fitness(x):
     return (x[:, :4] * w).sum(1)
 
 
-# 输入的output : [batch_id,box for per image,xyxy + conf + class]
+# 输入的output 是一个list，有bs个元素，每个元素shape (nms_num,6)  6指的是[x1,y1,x2,y2, conf, class_id]
 def output_to_target(output, width, height):
     """
     Convert a YOLO model output to target format
@@ -808,7 +812,7 @@ def output_to_target(output, width, height):
     targets = []
     for i, o in enumerate(output):
         if o is not None:
-            for pred in o:
+            for pred in o:  ## (6)
                 box = pred[:4]
                 w = (box[2] - box[0]) / width
                 h = (box[3] - box[1]) / height
@@ -856,8 +860,8 @@ def plot_wh_methods():  # from utils.utils import *; plot_wh_methods()
     fig.tight_layout()
     fig.savefig('comparison.png', dpi=200)
 
-# targets: gt:  [batch_id, n_box for per image, image_id + class + xywh]
-# targets: pre: [batch_id,batch_id + class_id + x + y + w + h + conf]
+# targets: gt:  shape (bs,tar_num,6)，6d 指的是 image_id,class,xywh
+# targets: pre: 是一个list，元素个数为一个bs中所有的预测框数目,每个元素为[image_id, cls, x, y, w, h, conf]
 def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max_size=640, max_subplots=16):
     tl = 3  # line thickness
     tf = max(tl - 1, 1)  # font thickness

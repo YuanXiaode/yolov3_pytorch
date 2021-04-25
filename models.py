@@ -136,7 +136,7 @@ def create_modules(module_defs, img_size, cfg):
         routs_binary[i] = True
     return module_list, routs_binary
 
-
+##  output:   x (bs,3x13x13,85)    p (bs,3,13,13,85)
 class YOLOLayer(nn.Module):
     def __init__(self, anchors, nc, img_size, yolo_index, layers, stride):
         super(YOLOLayer, self).__init__()

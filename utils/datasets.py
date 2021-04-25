@@ -255,7 +255,10 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
-
+## 输出： img (bs,h,w,c)  RGB格式 0-255
+##       label (bs,nl,6)  nl 指label的数量，后面的6指的是 (image_index,class,x,y,w,h)
+##       path  元组， 每个元素都是图片路径
+##       shapes 元组，每个元素都是 (h0, w0), ((h / h0, w / w0), pad)
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, img_size=416, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
                  cache_images=False, single_cls=False, pad=0.0):

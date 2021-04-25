@@ -102,15 +102,15 @@ def test(cfg,
             t1 += torch_utils.time_synchronized() - t
 
         # Statistics per image
-        ## targets shape (bs,n_box for per image,6)，6d 指的是 image_id,class,xywh
-        ## output shape  (bs,num_box for per image,6), 6d 指的是 xyxy + conf + class
+        ## targets shape (bs,tar_num,6)，6d 指的是 image_id,class,xywh
+        ## output 是一个list，有bs个元素，每个元素shape (nms_num,6)  6指的是[x1,y1,x2,y2, conf, class_id]
         for si, pred in enumerate(output):
-            labels = targets[targets[:, 0] == si, 1:]
+            labels = targets[targets[:, 0] == si, 1:]  ## (tar_num,5))
             nl = len(labels)
             tcls = labels[:, 0].tolist() if nl else []  # target class
             seen += 1
 
-            if pred is None:
+            if pred is None:  ## 该图片不存在预测框
                 if nl:
                     stats.append((torch.zeros(0, niou, dtype=torch.bool), torch.Tensor(), torch.Tensor(), tcls))
                 continue
@@ -127,9 +127,9 @@ def test(cfg,
                 # [{"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}, ...
                 image_id = int(Path(paths[si]).stem.split('_')[-1])
                 box = pred[:, :4].clone()  # xyxy
-                # imgs是处理后的图，shapes 的前两维是处理前的图像迟钝
+                # imgs是处理后的图，shapes 的前两维是处理前的图像尺寸
                 scale_coords(imgs[si].shape[1:], box, shapes[si][0], shapes[si][1])  # to original shape
-                box = xyxy2xywh(box)  # xywh
+                box = xyxy2xywh(box)
                 box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
                 for p, b in zip(pred.tolist(), box.tolist()):
                     jdict.append({'image_id': image_id,
@@ -148,20 +148,20 @@ def test(cfg,
 
                 # Per target class
                 for cls in torch.unique(tcls_tensor): # 遍历这张图片的label的所有类别
-                    ti = (cls == tcls_tensor).nonzero().view(-1)  # target indices
+                    ti = (cls == tcls_tensor).nonzero().view(-1)  # target indices   nonzero() 返回的是非零值对应的indices
                     pi = (cls == pred[:, 5]).nonzero().view(-1)  # prediction indices
 
                     # Search for detections
                     if pi.shape[0]:
                         # Prediction to target ious
-                        ious, i = box_iou(pred[pi, :4], tbox[ti]).max(1)  # best ious, indices
+                        ious, i = box_iou(pred[pi, :4], tbox[ti]).max(1)  # best ious, indices   每一个pre的最大iou对应的tar的值和索引
 
-                        # Append detections
+                        # Append detections  这里是为pre分配true_box
                         for j in (ious > iouv[0]).nonzero():  ## 只记录大于 iouv[0] 的 box 的索引
-                            d = ti[i[j]]  # detected target
+                            d = ti[i[j]]  # detected target   i[j] 表示第j个框对应的最大iou的tar的索引
                             if d not in detected:
                                 detected.append(d)
-                                correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn
+                                correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn  ## pi[j] 表示匹配到true_box的预测框的索引
                                 if len(detected) == nl:  # all targets already located in image
                                     break
 

@@ -84,10 +84,9 @@ def detect(save_img=False):
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-
         # Inference
         t1 = torch_utils.time_synchronized()
-        pred = model(img, augment=opt.augment)[0]
+        pred = model(img, augment=opt.augment)[0]  ## (1,12096,85)
         t2 = torch_utils.time_synchronized()
         # to float
         if half:
@@ -95,7 +94,7 @@ def detect(save_img=False):
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres,
-                                   multi_label=False, classes=opt.classes, agnostic=opt.agnostic_nms)
+                                   multi_label=False, classes=opt.classes, agnostic=opt.agnostic_nms)  ## (5,6)
 
 
         # Apply Classifier  就是进一步分类而已
