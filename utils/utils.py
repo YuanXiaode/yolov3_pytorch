@@ -143,7 +143,9 @@ def clip_coords(boxes, img_shape):
     boxes[:, 2].clamp_(0, img_shape[1])  # x2
     boxes[:, 3].clamp_(0, img_shape[0])  # y2
 
-
+# tp shape (一个bs内预测框满足阈值的预测框总数,10 for mAP0.5...0.95)
+# 返回依次是 p shape(s)，置信度0.1处的查准率，r shape(s)置信度0.1处的召回率
+# ap shape(class,10) 指AP,  f1 就是F值 , 类别id
 def ap_per_class(tp, conf, pred_cls, target_cls):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
@@ -157,7 +159,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
     """
 
     # Sort by objectness
-    i = np.argsort(-conf)
+    i = np.argsort(-conf)  ## 高到低
     tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
 
     # Find unique classes
@@ -176,6 +178,11 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
             continue
         else:
             # Accumulate FPs and TPs
+            '''
+                cumsum 是累加函数，如
+                [[0.1,0.2,0.3]     -> [[0.1,0.2,0.3]
+                 [0.3,0.4,0.5]]        [0.4 0.6 0.8]
+            '''
             fpc = (1 - tp[i]).cumsum(0)
             tpc = tp[i].cumsum(0)
 
@@ -185,7 +192,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
 
             # Precision
             precision = tpc / (tpc + fpc)  # precision curve
-            p[ci] = np.interp(-pr_score, -conf[i], precision[:, 0])  # p at pr_score
+            p[ci] = np.interp(-pr_score, -conf[i], precision[:, 0])  # p at pr_score  横坐标：-conf[i] 纵坐标：precision[:, 0]
 
             # AP from recall-precision curve
             for j in range(tp.shape[1]):
@@ -206,7 +213,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
 
     return p, r, ap, f1, unique_classes.astype('int32')
 
-
+# shape (N)
 def compute_ap(recall, precision):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rbgirshick/py-faster-rcnn.
@@ -222,14 +229,15 @@ def compute_ap(recall, precision):
     mpre = np.concatenate(([0.], precision, [0.]))
 
     # Compute the precision envelope
+    # 产生类似 [1,5,7,8,1,2,4,2,3] -> [8 8 8 8 4 4 4 3 3] 的效果，可以参考zhuanlan.zhihu.com/p/60834912
     mpre = np.flip(np.maximum.accumulate(np.flip(mpre)))
 
     # Integrate area under curve
     method = 'interp'  # methods: 'continuous', 'interp'
     if method == 'interp':
         x = np.linspace(0, 1, 101)  # 101-point interp (COCO)
-        ap = np.trapz(np.interp(x, mrec, mpre), x)  # integrate
-    else:  # 'continuous'
+        ap = np.trapz(np.interp(x, mrec, mpre), x)  # integrate  np.trapz是简单的梯形积分
+    else:  # 'continuous'  这个是算矩形面积
         i = np.where(mrec[1:] != mrec[:-1])[0]  # points where x axis (recall) changes
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])  # area under curve
 
@@ -349,7 +357,8 @@ def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#iss
     # return positive, negative label smoothing BCE targets
     return 1.0 - 0.5 * eps, 0.5 * eps
 
-
+## p shape (bs,3,13,13,85)
+## targets shape (bs,nl,6)  nl 指label的数量，后面的6指的是 (image_index,class,x,y,w,h)
 def compute_loss(p, targets, model):  # predictions, targets, model
     ft = torch.cuda.FloatTensor if p[0].is_cuda else torch.Tensor
     lcls, lbox, lobj = ft([0]), ft([0]), ft([0])
@@ -744,7 +753,7 @@ def print_mutation(hyp, results, bucket=''):
     # Print mutation results to evolve.txt (for use with train.py --evolve)
     a = '%10s' * len(hyp) % tuple(hyp.keys())  # hyperparam keys
     b = '%10.3g' * len(hyp) % tuple(hyp.values())  # hyperparam values
-    c = '%10.4g' * len(results) % results  # results (P, R, mAP, F1, test_loss)
+    c = '%10.4g' * len(results) % results  # results (P, R, mAP, F1, test_losses=(GIoU, obj, cls))
     print('\n%s\n%s\nEvolved fitness: %s\n' % (a, b, c))
 
     if bucket:

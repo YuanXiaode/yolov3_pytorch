@@ -225,7 +225,7 @@ class YOLOLayer(nn.Module):
             torch.sigmoid_(io[..., 4:])
             return io.view(bs, -1, self.no), p  # view [1, 3, 13, 13, 85] as [1, 507, 85]
 
-
+## output:   x (bs,3x13x13,85)    p (bs,3,13,13,85)
 class Darknet(nn.Module):
     # YOLOv3 object detection model
 
@@ -324,7 +324,7 @@ class Darknet(nn.Module):
                 x[1][..., :4] /= s[0]  # scale
                 x[1][..., 0] = img_size[1] - x[1][..., 0]  # flip lr
                 x[2][..., :4] /= s[1]  # scale
-                x = torch.cat(x, 1)  # shape:(10647x3,85)
+                x = torch.cat(x, 1)  # shape:(bs,10647x3,85)
             return x, p
 
     def fuse(self):

@@ -535,7 +535,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 # 读取图片，并保持长宽比将最大边缩放至416
 def load_image(self, index):
     # loads 1 image from dataset, returns img, original hw, resized hw
-    img = self.imgs[index]
+    img = self.imgs[index]   ## 可能缓存过了
     if img is None:  # not cached
         path = self.img_files[index]
         img = cv2.imread(path)  # BGR
