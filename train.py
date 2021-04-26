@@ -188,8 +188,9 @@ def train(hyp):
     if device.type != 'cpu' and torch.cuda.device_count() > 1 and torch.distributed.is_available():
         dist.init_process_group(backend='nccl',  # 'distributed backend'   官方推荐后端
                                 init_method='tcp://127.0.0.1:9999',  # distributed training init method 官方推荐TCP初始化
-                                world_size=1,  # number of nodes for distributed training  实际就是参与的GPU的个数
+                                world_size=1,  # number of nodes for distributed training  这个是节点（主机数量）
                                 rank=0)  # distributed training node rank  进程标识符
+        # 如果模型的输出有不需要进行反传的，设置此参数为True;如果你的代码运行后卡住某个地方不动，基本上就是该参数的问题。
         model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
         model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level
 
