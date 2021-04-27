@@ -22,7 +22,7 @@ def detect(save_img=False):
     # Load weights
     attempt_download(weights)  ## in model
     if weights.endswith('.pt'):  # pytorch format
-        model.load_state_dict(torch.load(weights, map_location=device)['model'])
+        model.load_state_dict(torch.load(weights, map_location=device)['model'],strict = False)
     else:  # darknet format
         load_darknet_weights(model, weights)
 
@@ -35,6 +35,9 @@ def detect(save_img=False):
 
     # Eval mode
     model.to(device).eval()
+    print("============= model.module ======================")
+    # print(model.module)
+    print(model.yolo_layers)
 
     # Fuse Conv2d + BatchNorm2d layers
     # model.fuse()
