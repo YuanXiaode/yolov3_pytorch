@@ -318,7 +318,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             self.shapes = s[irect]  # wh
             ar = ar[irect]
 
-            # Set training image shapes
+            # Set training image shapes  长边变成img_size，短边加上小pad变成32的倍数(pad < 32)
             ## ！！！注意这里的shape应该是hw，和前面的self.shapes反过来了，坑！
             ## 否则在letterbox函数里会解释不清
             shapes = [[1, 1]] * nb

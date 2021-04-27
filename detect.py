@@ -37,7 +37,7 @@ def detect(save_img=False):
     model.to(device).eval()
     print("============= model.module ======================")
     # print(model.module)
-    print(model.yolo_layers)
+
 
     # Fuse Conv2d + BatchNorm2d layers
     # model.fuse()

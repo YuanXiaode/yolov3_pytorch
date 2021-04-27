@@ -192,9 +192,9 @@ def train(hyp):
                                 rank=0)  # distributed training node rank  进程标识符
         # 如果模型的输出有不需要进行反传的，设置此参数为True;如果你的代码运行后卡住某个地方不动，基本上就是该参数的问题。
         model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
-        model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level
+        model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level  不知道这是在做啥，model 里没有 module
 
-    # Dataset
+    # Dataset   用了DistributedDataParallel，却没用torch.utils.data.distributed.DsitributedSampler，疑惑
     dataset = LoadImagesAndLabels(train_path, img_size, batch_size,
                                   augment=True,
                                   hyp=hyp,  # augmentation hyperparameters
