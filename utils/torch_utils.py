@@ -186,8 +186,9 @@ class ModelEMA:
             for k, v in esd.items():
                 if v.dtype.is_floating_point:
                     v *= d
-                    v += (1. - d) * msd[k].detach()
+                    v += (1. - d) * msd[k].detach()  ## v = (1-d) * v_old + d * v_esd
 
+    # 我也不知道干啥的
     def update_attr(self, model):
         # Assign attributes (which may change during training)
         for k in model.__dict__.keys():

@@ -59,14 +59,15 @@ def load_classes(path):
         names = f.read().split('\n')
     return list(filter(None, names))  # filter removes empty strings (such as last line)
 
-# labels : 列表，共有866643个元素，每个元素为 class,x,y,w,h
+# labels : list，共有n个元素，per elements: (n_label_per_image,6)  6指(class,x,y,w,h)   类似[(1,6),(2,6),(5,6)...]
+# 该类别数目越多，权重越小
 def labels_to_class_weights(labels, nc=80):
     # Get class weights (inverse frequency) from training labels
     if labels[0] is None:  # no labels loaded
         return torch.Tensor()
 
     labels = np.concatenate(labels, 0)  # labels.shape = (866643, 5) for COCO
-    classes = labels[:, 0].astype(np.int)  # labels = [class xywh]
+    classes = labels[:, 0].astype(np.int)
     weights = np.bincount(classes, minlength=nc)  # occurences per class
 
     # Prepend gridpoint count (for uCE trianing)
@@ -78,12 +79,12 @@ def labels_to_class_weights(labels, nc=80):
     weights /= weights.sum()  # normalize
     return torch.from_numpy(weights)
 
-
+# 图像权重，原理：一副图像中出现的所有类别 * 对应类别权重，然后取总
 def labels_to_image_weights(labels, nc=80, class_weights=np.ones(80)):
     # Produces image weights based on class mAPs
     n = len(labels)
-    class_counts = np.array([np.bincount(labels[i][:, 0].astype(np.int), minlength=nc) for i in range(n)])
-    image_weights = (class_weights.reshape(1, nc) * class_counts).sum(1)
+    class_counts = np.array([np.bincount(labels[i][:, 0].astype(np.int), minlength=nc) for i in range(n)])  ## shape (n,80)
+    image_weights = (class_weights.reshape(1, nc) * class_counts).sum(1)   ## shape (n,)
     # index = random.choices(range(n), weights=image_weights, k=1)  # weight image sample
     return image_weights
 

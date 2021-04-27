@@ -192,7 +192,8 @@ def train(hyp):
                                 rank=0)  # distributed training node rank  进程标识符
         # 如果模型的输出有不需要进行反传的，设置此参数为True;如果你的代码运行后卡住某个地方不动，基本上就是该参数的问题。
         model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
-        model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level  不知道这是在做啥，model 里没有 module
+        # 这里注意一下，用了DistributedDataParallel 或 DataParallel 后，会自动在model后添加一个module类
+        model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level  [82, 94, 106]
 
     # Dataset   用了DistributedDataParallel，却没用torch.utils.data.distributed.DsitributedSampler，疑惑
     dataset = LoadImagesAndLabels(train_path, img_size, batch_size,
@@ -208,7 +209,7 @@ def train(hyp):
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
                                              num_workers=nw,
-                                             shuffle=not opt.rect,  # Shuffle=True unless rectangular training is used
+                                             shuffle=not opt.rect,  # Shuffle=True unless rectangular training is used  训练时一般不需要 opt.rect
                                              pin_memory=True,
                                              collate_fn=dataset.collate_fn)
 
@@ -220,7 +221,7 @@ def train(hyp):
                                                                  single_cls=opt.single_cls),
                                              batch_size=batch_size,
                                              num_workers=nw,
-                                             pin_memory=True,
+                                             pin_memory=True,  ## 锁页内存
                                              collate_fn=dataset.collate_fn)
 
     # Model parameters
@@ -230,7 +231,7 @@ def train(hyp):
     model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device)  # attach class weights
 
     # Model EMA
-    ema = torch_utils.ModelEMA(model)
+    ema = torch_utils.ModelEMA(model)  # ema 不会自动更新参数
 
     # Start training
     nb = len(dataloader)  # number of batches
@@ -247,7 +248,7 @@ def train(hyp):
 
         # Update image weights (optional)
         if dataset.image_weights:
-            w = model.class_weights.cpu().numpy() * (1 - maps) ** 2  # class weights
+            w = model.class_weights.cpu().numpy() * (1 - maps) ** 2  # class weights 类别数目少，ap低的类别的权重大（样本不均匀和难例挖掘）
             image_weights = labels_to_image_weights(dataset.labels, nc=nc, class_weights=w)
             dataset.indices = random.choices(range(dataset.n), weights=image_weights, k=dataset.n)  # rand weighted idx
 

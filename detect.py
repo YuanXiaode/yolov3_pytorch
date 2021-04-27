@@ -35,8 +35,8 @@ def detect(save_img=False):
 
     # Eval mode
     model.to(device).eval()
-    print("============= model.module ======================")
-    # print(model.module)
+    for k in model.__dict__.keys():
+        print(k,"    ",getattr(model, k))
 
 
     # Fuse Conv2d + BatchNorm2d layers
