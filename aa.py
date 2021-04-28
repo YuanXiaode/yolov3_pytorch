@@ -5,18 +5,12 @@ import torch.utils.data as Data
 import torch.optim as optim
 import os
 import cv2 as cv
-capture = cv.VideoCapture("/home/yxd/mygithub/yolov5/runs/detect/导线舞动素材5.mp4")
-cv.namedWindow("video",cv.WINDOW_AUTOSIZE)
-while(1):
-    ret, frame = capture.read()
-    if ret:
-        cv.imshow(frame)
-        key = cv.waitKey(20)
-        if key==ord('q'):
-            break;
-    else:
-        break
-capture.release()
-cv.destroyAllWindows()
 
-torch.distributions.
+a = torch.arange(12).reshape((3,2,2))
+# print(a)
+
+index = torch.tensor([1,2])
+index2 = torch.tensor([1,0])
+
+print(a[index,index2].shape)
+print(a[index,index2])

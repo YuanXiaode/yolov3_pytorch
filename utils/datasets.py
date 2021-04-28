@@ -256,7 +256,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
 ## 输出： img (bs,h,w,c)  RGB格式 0-255
-##       label (bs,nl,6)  nl 指label的数量，后面的6指的是 (image_index,class,x,y,w,h)
+##       label (N,6)  nl 指label的数量，后面的6指的是 (image_index,class,x,y,w,h)  x,y,w,h 是归一化的,N指一个bs中所有的label
 ##       path  元组， 每个元素都是图片路径
 ##       shapes 元组，每个元素都是 (h0, w0), ((h / h0, w / w0), pad)
 class LoadImagesAndLabels(Dataset):  # for training/testing
@@ -442,7 +442,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
     #     return self
 
     def __getitem__(self, index):
-        if self.image_weights:  ## ？？
+        if self.image_weights: # 在 tran.py中算出了 self.indices
             index = self.indices[index]
 
         hyp = self.hyp
@@ -525,6 +525,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
     ## 输入的batch 形式为(img,label,file,shape),(img,label,file,shape),...  （有bs个元组）
     ## zip(*batch) 后变成 (img,img,img...), (label,label,...), (file,file,...) , (shape,shape,...)
     ## torch.stack(img,0) 后变成 [img,img,img...]...  第一个维度是bs
+    ## torch.cat(label, 0) 后维度变成 (all_labels,6)
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed

@@ -102,10 +102,10 @@ def test(cfg,
             t1 += torch_utils.time_synchronized() - t
 
         # Statistics per image
-        ## targets shape (bs,tar_num,6)，6d 指的是 image_id,class,xywh
+        ## targets shape (N,6)，6 指的是 image_id,class,xywh
         ## output 是一个list，有bs个元素，每个元素shape (nms_num,6)  6指的是[x1,y1,x2,y2, conf, class_id]
         for si, pred in enumerate(output):
-            labels = targets[targets[:, 0] == si, 1:]  ## (tar_num,5))
+            labels = targets[targets[:, 0] == si, 1:]  ## (tar_num,5)
             nl = len(labels)
             tcls = labels[:, 0].tolist() if nl else []  # target class
             seen += 1
@@ -178,7 +178,7 @@ def test(cfg,
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats):
-        p, r, ap, f1, ap_class = ap_per_class(*stats)
+        p, r, ap, f1, ap_class = ap_per_class(*stats)  # [P, R, AP@0.5 F]
         if niou > 1:
             p, r, ap, f1 = p[:, 0], r[:, 0], ap.mean(1), ap[:, 0]  # [P, R, AP@0.5:0.95, AP@0.5]  每个类别单独计算
         mp, mr, map, mf1 = p.mean(), r.mean(), ap.mean(), f1.mean()    ## 所有类别取平均

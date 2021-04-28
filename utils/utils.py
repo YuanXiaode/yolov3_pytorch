@@ -59,7 +59,7 @@ def load_classes(path):
         names = f.read().split('\n')
     return list(filter(None, names))  # filter removes empty strings (such as last line)
 
-# labels : list，共有n个元素，per elements: (n_label_per_image,6)  6指(class,x,y,w,h)   类似[(1,6),(2,6),(5,6)...]
+# labels : list，共有n个元素（n指图片数目），如[(1,6),(2,6),(5,6)...]  6指(class,x,y,w,h)   类似[(1,6),(2,6),(5,6)...]
 # 该类别数目越多，权重越小
 def labels_to_class_weights(labels, nc=80):
     # Get class weights (inverse frequency) from training labels
@@ -79,7 +79,7 @@ def labels_to_class_weights(labels, nc=80):
     weights /= weights.sum()  # normalize
     return torch.from_numpy(weights)
 
-# 图像权重，原理：一副图像中出现的所有类别 * 对应类别权重，然后取总
+# 图像权重，原理：一副图像中出现的所有类别 * 对应类别权重取总
 def labels_to_image_weights(labels, nc=80, class_weights=np.ones(80)):
     # Produces image weights based on class mAPs
     n = len(labels)
@@ -244,7 +244,7 @@ def compute_ap(recall, precision):
 
     return ap
 
-
+## G D C iou
 def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False):
     # Returns the IoU of box1 to box2. box1 is 4, box2 is nx4
     box2 = box2.t()
@@ -318,12 +318,12 @@ def box_iou(box1, box2):
 
 def wh_iou(wh1, wh2):
     # Returns the nxm IoU matrix. wh1 is nx2, wh2 is mx2
-    wh1 = wh1[:, None]  # [N,1,2]
+    wh1 = wh1[:, None]  # [N,1,2]   numpy也有这种用法，加一维
     wh2 = wh2[None]  # [1,M,2]
-    inter = torch.min(wh1, wh2).prod(2)  # [N,M]
+    inter = torch.min(wh1, wh2).prod(2)  # [N,M,2] -> [N,M]  prod(2) 维度2元素相乘
     return inter / (wh1.prod(2) + wh2.prod(2) - inter)  # iou = inter / (area1 + area2 - inter)
 
-
+# 与论文Focal Loss for Dense Object Detection 一致
 class FocalLoss(nn.Module):
     # Wraps focal loss around existing loss_fcn(), i.e. criteria = FocalLoss(nn.BCEWithLogitsLoss(), gamma=1.5)
     def __init__(self, loss_fcn, gamma=1.5, alpha=0.25):
@@ -358,8 +358,8 @@ def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#iss
     # return positive, negative label smoothing BCE targets
     return 1.0 - 0.5 * eps, 0.5 * eps
 
-## p shape (bs,3,13,13,85)
-## targets shape (bs,nl,6)  nl 指label的数量，后面的6指的是 (image_index,class,x,y,w,h)
+## p：预测值  [(bs,3,13,13,85),(bs,3,26,26,85),(bs,3,52,52,85)]
+## targets shape (N,6)  N是一个bs中label的总数量，后面的6指的是 (image_index,class,x,y,w,h)
 def compute_loss(p, targets, model):  # predictions, targets, model
     ft = torch.cuda.FloatTensor if p[0].is_cuda else torch.Tensor
     lcls, lbox, lobj = ft([0]), ft([0]), ft([0])
@@ -367,12 +367,14 @@ def compute_loss(p, targets, model):  # predictions, targets, model
     h = model.hyp  # hyperparameters
     red = 'mean'  # Loss reduction (sum or mean)
 
-    # Define criteria
-    BCEcls = nn.BCEWithLogitsLoss(pos_weight=ft([h['cls_pw']]), reduction=red)
+    # Define criteria  类别损失和置信度损失
+    # # sigmoid + 交叉熵  L = sum(l_1+l_2+..+l_bs),
+    #                  l_n = pos_weight * label * log(sigmoid(pre)) + (1 - label) * log(1 - sigmoid(pre))
+    BCEcls = nn.BCEWithLogitsLoss(pos_weight=ft([h['cls_pw']]), reduction=red) # 正例少，就调高 pos_weight
     BCEobj = nn.BCEWithLogitsLoss(pos_weight=ft([h['obj_pw']]), reduction=red)
 
     # class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
-    cp, cn = smooth_BCE(eps=0.0)
+    cp, cn = smooth_BCE(eps=0.0)  # 标签平滑
 
     # focal loss
     g = h['fl_gamma']  # focal loss gamma
@@ -382,35 +384,37 @@ def compute_loss(p, targets, model):  # predictions, targets, model
     # per output
     nt = 0  # targets
     for i, pi in enumerate(p):  # layer index, layer predictions
-        b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
-        tobj = torch.zeros_like(pi[..., 0])  # target obj
+        # b表示bs中的图片id，a表示对应的anchor，gj,gi表示lable框所在的grid
+        b, a, gj, gi = indices[i]  # image_id, anchor, gridy, gridx   shape (n,)
+        tobj = torch.zeros_like(pi[..., 0])  # target obj  ## (bs,3,feature_size,feature_size)
 
         nb = b.shape[0]  # number of targets
-        if nb:
+        if nb:  # 只有正例才算这两个
             nt += nb  # cumulative targets
-            ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+            ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets  (n,85)
 
             # GIoU
             pxy = ps[:, :2].sigmoid()
             pwh = ps[:, 2:4].exp().clamp(max=1E3) * anchors[i]
-            pbox = torch.cat((pxy, pwh), 1)  # predicted box
-            giou = bbox_iou(pbox.t(), tbox[i], x1y1x2y2=False, GIoU=True)  # giou(prediction, target)
-            lbox += (1.0 - giou).sum() if red == 'sum' else (1.0 - giou).mean()  # giou loss
+            pbox = torch.cat((pxy, pwh), 1)  # predicted box   (n,4)
+            giou = bbox_iou(pbox.t(), tbox[i], x1y1x2y2=False, GIoU=True)  # giou(prediction, target)  shape()
+            lbox += (1.0 - giou).sum() if red == 'sum' else (1.0 - giou).mean()  # giou loss   (n,)
 
-            # Obj
-            tobj[b, a, gj, gi] = (1.0 - model.gr) + model.gr * giou.detach().clamp(0).type(tobj.dtype)  # giou ratio
+            # Obj  gr:giou loss ratio (default 1.0)
+            tobj[b, a, gj, gi] = (1.0 - model.gr) + model.gr * giou.detach().clamp(0).type(tobj.dtype)
 
             # Class
             if model.nc > 1:  # cls loss (only if multiple classes)
-                t = torch.full_like(ps[:, 5:], cn)  # targets
-                t[range(nb), tcls[i]] = cp
-                lcls += BCEcls(ps[:, 5:], t)  # BCE
+                t = torch.full_like(ps[:, 5:], cn)  # targets  默认全为背景  (n,80) 第一个维度是target的数量
+                t[range(nb), tcls[i]] = cp          # 存在targets的地方赋值cp,tcls[i]保存了每个target的 class_id
+                lcls += BCEcls(ps[:, 5:], t)        # BCE  两个都是one_hot形式
 
             # Append targets to text file
             # with open('targets.txt', 'a') as file:
             #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
 
-        lobj += BCEobj(pi[..., 4], tobj)  # obj loss
+        # 背景对应的tobj = 0，正例对应的为 (1.0 - gr) + gr * giou
+        lobj += BCEobj(pi[..., 4], tobj)  # obj loss   (bs,3,feature_size,feature_size)
 
     lbox *= h['giou']
     lobj *= h['obj']
@@ -418,14 +422,13 @@ def compute_loss(p, targets, model):  # predictions, targets, model
     if red == 'sum':
         bs = tobj.shape[0]  # batch size
         g = 3.0  # loss gain
-        lobj *= g / bs
+        lobj *= g / bs   ## 就是取个平均
         if nt:
             lcls *= g / nt / model.nc
             lbox *= g / nt
 
     loss = lbox + lobj + lcls
     return loss, torch.cat((lbox, lobj, lcls, loss)).detach()
-
 
 def build_targets(p, targets, model):
     # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
@@ -437,27 +440,31 @@ def build_targets(p, targets, model):
     style = None
     multi_gpu = type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel)
     for i, j in enumerate(model.yolo_layers):
-        anchors = model.module.module_list[j].anchor_vec if multi_gpu else model.module_list[j].anchor_vec
-        gain[2:] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
-        na = anchors.shape[0]  # number of anchors
-        at = torch.arange(na).view(na, 1).repeat(1, nt)  # anchor tensor, same as .repeat_interleave(nt)
+        anchors = model.module.module_list[j].anchor_vec if multi_gpu else model.module_list[j].anchor_vec  # anchor_vec = anchors / stride
+        gain[2:] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain    p[i].shape  (bs,3,Feature_size,Feature_size,85)
+        na = anchors.shape[0]  # number of anchors  3
+        at = torch.arange(na).view(na, 1).repeat(1, nt)  # anchor tensor, same as .repeat_interleave(nt)    (3,nt)
 
         # Match targets to anchors
-        a, t, offsets = [], targets * gain, 0
+        a, t, offsets = [], targets * gain, 0   # 变成特征图尺寸
         if nt:
             # r = t[None, :, 4:6] / anchors[:, None]  # wh ratio
             # j = torch.max(r, 1. / r).max(2)[0] < model.hyp['anchor_t']  # compare
-            j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n) = wh_iou(anchors(3,2), gwh(n,2))
-            a, t = at[j], t.repeat(na, 1, 1)[j]  # filter
+            j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,nt) = wh_iou(anchors(3,2), gwh(nt,2))
+
+            # a 表示符合阈值的anhor的编号  shape (n)
+            # t 表示符合阈值的targets     shape (n,6)
+            a, t = at[j], t.repeat(na, 1, 1)[j]  # filter  a shape (n), t shape (n，2)
 
             # overlaps
             gxy = t[:, 2:4]  # grid xy
-            z = torch.zeros_like(gxy)
+            z = torch.zeros_like(gxy)  # (n,2)
+            # 看不懂
             if style == 'rect2':
                 g = 0.2  # offset
-                j, k = ((gxy % 1. < g) & (gxy > 1.)).T
+                j, k = ((gxy % 1. < g) & (gxy > 1.)).T ## 难懂，j代表满足条件的横坐标，k代表纵坐标，条件是 大于1.0，且和边界距离小于0.2
                 a, t = torch.cat((a, a[j], a[k]), 0), torch.cat((t, t[j], t[k]), 0)
-                offsets = torch.cat((z, z[j] + off[0], z[k] + off[1]), 0) * g
+                offsets = torch.cat((z, z[j] + off[0], z[k] + off[1]), 0) * g  ## 移动 g  维度都没法确定
 
             elif style == 'rect4':
                 g = 0.5  # offset
@@ -470,12 +477,12 @@ def build_targets(p, targets, model):
         b, c = t[:, :2].long().T  # image, class
         gxy = t[:, 2:4]  # grid xy
         gwh = t[:, 4:6]  # grid wh
-        gij = (gxy - offsets).long()
+        gij = (gxy - offsets).long()  ## 维度都不同咋减啊 (nt,2) 和 (m,2)?    .long() 变成整数 (1.5).long() = 1
         gi, gj = gij.T  # grid xy indices
 
         # Append
         indices.append((b, a, gj.clamp_(0, gain[3] - 1), gi.clamp_(0, gain[2] - 1)))  # image, anchor, grid indices
-        tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
+        tbox.append(torch.cat((gxy - gij, gwh), 1))  # box  相对网格的距离
         anch.append(anchors[a])  # anchors
         tcls.append(c)  # class
         if c.shape[0]:  # if any targets
@@ -485,7 +492,7 @@ def build_targets(p, targets, model):
 
     return tcls, tbox, indices, anch
 
-# prediction shape (bs,3x13x13,85)
+# prediction shape (bs,10647,85)
 # 输出的 output 是一个list，有bs个元素，每个元素shape (num_box,6)  6指的是[x1,y1,x2,y2, conf, class_id]
 def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=True, classes=None, agnostic=False):
     """
@@ -806,7 +813,7 @@ def apply_classifier(x, model, img, im0):
 
 def fitness(x):
     # Returns fitness (for use with results.txt or evolve.txt)
-    w = [0.0, 0.01, 0.99, 0.00]  # weights for [P, R, mAP, F1]@0.5 or [P, R, mAP@0.5, mAP@0.5:0.95]
+    w = [0.0, 0.01, 0.99, 0.00]  # weights for [P, R, mAP, F1]@0.5
     return (x[:, :4] * w).sum(1)
 
 
@@ -870,7 +877,7 @@ def plot_wh_methods():  # from utils.utils import *; plot_wh_methods()
     fig.tight_layout()
     fig.savefig('comparison.png', dpi=200)
 
-# targets: gt:  shape (bs,tar_num,6)，6d 指的是 image_id,class,xywh
+# targets: gt:  shape (N,6)，6d 指的是 image_id,class,xywh
 # targets: pre: 是一个list，元素个数为一个bs中所有的预测框数目,每个元素为[image_id, cls, x, y, w, h, conf]
 def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max_size=640, max_subplots=16):
     tl = 3  # line thickness
@@ -1068,7 +1075,7 @@ def plot_results_overlay(start=0, stop=0):  # from utils.utils import *; plot_re
 def plot_results(start=0, stop=0, bucket='', id=()):  # from utils.utils import *; plot_results()
     # Plot training 'results*.txt' as seen in https://github.com/ultralytics/yolov3#training
     fig, ax = plt.subplots(2, 5, figsize=(12, 6), tight_layout=True)
-    ax = ax.ravel()
+    ax = ax.ravel()  # (2,5)->10
     s = ['GIoU', 'Objectness', 'Classification', 'Precision', 'Recall',
          'val GIoU', 'val Objectness', 'val Classification', 'mAP@0.5', 'F1']
     if bucket:

@@ -197,7 +197,7 @@ class YOLOLayer(nn.Module):
             if (self.nx, self.ny) != (nx, ny):
                 self.create_grids((nx, ny), p.device)
 
-        # p.view(bs, 255, 13, 13) -- > (bs, 3, 13, 13, 85)  # (bs, anchors, grid, grid, classes + xywh)
+        # p.view(bs, 255, 13, 13) -- > (bs, 3, 13, 13, 85)  # (bs, anchors, grid, grid, xywh+conf+cls+onehot)
         p = p.view(bs, self.na, self.no, self.ny, self.nx).permute(0, 1, 3, 4, 2).contiguous()  # prediction
 
         if self.training:
@@ -226,6 +226,20 @@ class YOLOLayer(nn.Module):
             return io.view(bs, -1, self.no), p  # view [1, 3, 13, 13, 85] as [1, 507, 85]
 
 ## output:   x (bs,3x13x13,85)    p (bs,3,13,13,85)
+
+
+'''
+    =============== 返回值说明 ===============
+    training：
+        yolo_out: 列表 [(bs,3,13,13,85),(bs,3,26,26,85),(bs,3,52,52,85)]，
+                  85指的是 (x,y,w,h,conf,class_onehot) ， xywh未解码
+    infer：
+        x shape (bs,10647,85),10647 = 3x(13^2 + 26^2 + 52^2)  85指 (x,y,w,h,conf,class_onehot)，xywh解码，且对应input_img尺寸
+        p 列表 [(bs,3,13,13,85),(bs,3,26,26,85),(bs,3,52,52,85)]
+    ONNX_EXPORT:
+        x[0] : (10647,80)
+        torch.cat(x[1:3], 1) : (10647,4)  归一化的 xywh
+'''
 class Darknet(nn.Module):
     # YOLOv3 object detection model
 
@@ -244,7 +258,7 @@ class Darknet(nn.Module):
 
     def forward(self, x, augment=False, verbose=False): # x shape (16,3,256,416)
 
-        if not augment:
+        if not augment:  ## augment 的代码应该有问题，forward_once里又重复写一遍
             return self.forward_once(x)
         else:  # Augment images (inference and test only) https://github.com/ultralytics/yolov3/issues/931
             # 这里其实就是多尺度 inference，应该可以涨些点
@@ -314,7 +328,7 @@ class Darknet(nn.Module):
             # zip(*yolo_out)后大概是 (cls1,cls2...),(xy1,xy2...),(wh1,wh2,...)
             # torch.cat(x, 0)后大概是: [好长一串cls1,好长一串xy，好长一串wh]
             x = [torch.cat(x, 0) for x in zip(*yolo_out)]
-            return x[0], torch.cat(x[1:3], 1)  # scores, boxes: 3780x80, 3780x4
+            return x[0], torch.cat(x[1:3], 1)
         else:  # inference or test
             # inference output shape [(bs,3x13x13,85)...], training output shape[(bs, 3, 13, 13, 85)...]  列表里是3个元素（3个yolo层）
             x, p = zip(*yolo_out)

@@ -249,8 +249,8 @@ def train(hyp):
         # Update image weights (optional)
         if dataset.image_weights:
             w = model.class_weights.cpu().numpy() * (1 - maps) ** 2  # class weights 类别数目少，ap低的类别的权重大（样本不均匀和难例挖掘）
-            image_weights = labels_to_image_weights(dataset.labels, nc=nc, class_weights=w)
-            dataset.indices = random.choices(range(dataset.n), weights=image_weights, k=dataset.n)  # rand weighted idx
+            image_weights = labels_to_image_weights(dataset.labels, nc=nc, class_weights=w)  ## shape (n,)，n is number of images
+            dataset.indices = random.choices(range(dataset.n), weights=image_weights, k=dataset.n)  # rand weighted idx  k指选择dataset.n个图片
 
         mloss = torch.zeros(4).to(device)  # mean losses
         print(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'GIoU', 'obj', 'cls', 'total', 'targets', 'img_size'))
@@ -260,25 +260,25 @@ def train(hyp):
             imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
             targets = targets.to(device)
 
-            # Burn-in
+            # Burn-in   调整参数，基本都是逐渐增大
             if ni <= n_burn:
                 xi = [0, n_burn]  # x interp
                 model.gr = np.interp(ni, xi, [0.0, 1.0])  # giou loss ratio (obj_loss = 1.0 or giou)
-                accumulate = max(1, np.interp(ni, xi, [1, 64 / batch_size]).round())
+                accumulate = max(1, np.interp(ni, xi, [1, 64 / batch_size]).round())  ## 就一个计数器，每过accumulate个bs就更新参数
                 for j, x in enumerate(optimizer.param_groups):
                     # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
-                    x['lr'] = np.interp(ni, xi, [0.1 if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
+                    x['lr'] = np.interp(ni, xi, [0.1 if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])  ## j==2 for bias
                     x['weight_decay'] = np.interp(ni, xi, [0.0, hyp['weight_decay'] if j == 1 else 0.0])
                     if 'momentum' in x:
                         x['momentum'] = np.interp(ni, xi, [0.9, hyp['momentum']])
 
             # Multi-Scale
-            if opt.multi_scale:
+            if opt.multi_scale:  ## 每过 accumulate 个 batch，就随机调整图像尺寸
                 if ni / accumulate % 1 == 0:  #  adjust img_size (67% - 150%) every 1 batch
                     img_size = random.randrange(grid_min, grid_max + 1) * gs
                 sf = img_size / max(imgs.shape[2:])  # scale factor
                 if sf != 1:
-                    ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to 32-multiple)
+                    ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to 32-multiple)  ceil 上取整
                     imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
@@ -320,7 +320,7 @@ def train(hyp):
 
             # end batch ------------------------------------------------------------------------------------------------
 
-        # Update scheduler
+        # Update scheduler  每次epoch更新
         scheduler.step()
 
         # Process epoch results
@@ -353,7 +353,7 @@ def train(hyp):
                 tb_writer.add_scalar(tag, x, epoch)
 
         # Update best mAP
-        fi = fitness(np.array(results).reshape(1, -1))  # fitness_i = weighted combination of [P, R, mAP, F1]
+        fi = fitness(np.array(results).reshape(1, -1))  # fitness_i = weighted combination of [P, R, mAP, F1]   fitness 在utils.py里
         if fi > best_fitness:
             best_fitness = fi
 
@@ -382,9 +382,9 @@ def train(hyp):
         fresults, flast, fbest = 'results%s.txt' % n, wdir + 'last%s.pt' % n, wdir + 'best%s.pt' % n
         for f1, f2 in zip([wdir + 'last.pt', wdir + 'best.pt', 'results.txt'], [flast, fbest, fresults]):
             if os.path.exists(f1):
-                os.rename(f1, f2)  # rename
+                os.rename(f1, f2)  # rename     weights/last.pt -> weights/results_name.pt
                 ispt = f2.endswith('.pt')  # is *.pt
-                strip_optimizer(f2) if ispt else None  # strip optimizer
+                strip_optimizer(f2) if ispt else None  # strip optimizer  训练完了，去除optimizer参数
                 os.system('gsutil cp %s gs://%s/weights' % (f2, opt.bucket)) if opt.bucket and ispt else None  # upload
 
     if not opt.evolve:
@@ -446,7 +446,7 @@ if __name__ == '__main__':
                 # Select parent(s)
                 parent = 'single'  # parent selection method: 'single' or 'weighted'
                 x = np.loadtxt('evolve.txt', ndmin=2)  # x 保存的是 (P, R, mAP, F1, test_losses=(GIoU, obj, cls)) + hyp
-                n = min(5, len(x))  # number of previous results to consider
+                n = min(5, len(x))  # number of previous results to consider  代码中就是1
                 x = x[np.argsort(-fitness(x))][:n]  # top n mutations
                 w = fitness(x) - fitness(x).min()  # weights   适应度越高，w越大
 
@@ -461,7 +461,7 @@ if __name__ == '__main__':
                 method, mp, s = 3, 0.9, 0.2  # method, mutation probability, sigma
                 npr = np.random
                 npr.seed(int(time.time()))
-                g = np.array([1, 1, 1, 1, 1, 1, 1, 0, .1, 1, 0, 1, 1, 1, 1, 1, 1, 1])  # gains
+                g = np.array([1, 1, 1, 1, 1, 1, 1, 0, .1, 1, 0, 1, 1, 1, 1, 1, 1, 1])  # gains  18  对应 len(hyp)
                 ng = len(g)
                 if method == 1:
                     v = (npr.randn(ng) * npr.random() * g * s + 1) ** 2.0  ## npr.randn 按正态分布生成随机数，npr.random()随机0-1.0的浮点数
