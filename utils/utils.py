@@ -1087,8 +1087,8 @@ def plot_results(start=0, stop=0, bucket='', id=()):  # from utils.utils import 
         try:
             results = np.loadtxt(f, usecols=[2, 3, 4, 8, 9, 12, 13, 14, 10, 11], ndmin=2).T
             n = results.shape[1]  # number of rows
-            x = range(start, min(stop, n) if stop else n)
-            for i in range(10):
+            x = range(start, min(stop, n) if stop else n) ## 加载数据个数
+            for i in range(10): # 10个条目
                 y = results[i, x]
                 if i in [0, 1, 2, 5, 6, 7]:
                     y[y == 0] = np.nan  # dont show zero loss values

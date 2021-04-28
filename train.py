@@ -339,6 +339,9 @@ def train(hyp):
                                       multi_label=ni > n_burn)
 
         # Write
+        # 这里保存的条目为:   epoch/epochs, mem, train/giou_loss, train/obj_loss, train/cls_loss, loss,
+        #                   len(targets), img_size, P, R, mAP, F1, val/giou_loss, val/obj_loss, val/cls_loss
+
         with open(results_file, 'a') as f:
             f.write(s + '%10.3g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
         if len(opt.name) and opt.bucket:
