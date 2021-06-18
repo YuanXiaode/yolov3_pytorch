@@ -223,9 +223,9 @@ class LoadStreams:  # multiple IP or RTSP cameras
         while cap.isOpened():
             n += 1
             # _, self.imgs[index] = cap.read()
-            cap.grab()
+            cap.grab()  ## 抓帧  cap.read() = cap.grab() + cap.retrieve()
             if n == 4:  # read every 4th frame
-                _, self.imgs[index] = cap.retrieve()
+                _, self.imgs[index] = cap.retrieve()  ## 解码
                 n = 0
             time.sleep(0.01)  # wait time
 
