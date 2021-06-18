@@ -77,7 +77,7 @@ def create_modules(module_defs, img_size, cfg):
 
         elif mdef['type'] == 'route':  # nn.Sequential() placeholder for 'route' layer
             layers = mdef['layers']
-            filters = sum([output_filters[l + 1 if l > 0 else l] for l in layers])
+            filters = sum([output_filters[l + 1 if l > 0 else l] for l in layers])  ## l + 1是因为 output_filters第一个元素是3
             routs.extend([i + l if l < 0 else l for l in layers])
             modules = FeatureConcat(layers=layers)
 
@@ -131,7 +131,7 @@ def create_modules(module_defs, img_size, cfg):
         module_list.append(modules)
         output_filters.append(filters)
 
-    routs_binary = [False] * (i + 1)
+    routs_binary = [False] * (i + 1)  ## routs 指后面要用到的层的id
     for i in routs:
         routs_binary[i] = True
     return module_list, routs_binary
@@ -235,10 +235,10 @@ class YOLOLayer(nn.Module):
                   85指的是 (x,y,w,h,conf,class_onehot) ， xywh未解码
     infer：
         x shape (bs,10647,85),10647 = 3x(13^2 + 26^2 + 52^2)  85指 (x,y,w,h,conf,class_onehot)，xywh解码，且对应input_img尺寸
-        p 列表 [(bs,3,13,13,85),(bs,3,26,26,85),(bs,3,52,52,85)]
+        p 列表 (bs,3,13,13,85),(bs,3,26,26,85),(bs,3,52,52,85)
     ONNX_EXPORT:
-        x[0] : (10647,80)
-        torch.cat(x[1:3], 1) : (10647,4)  归一化的 xywh
+        x[0] : (3780,80)     ## 图像尺寸为320，192
+        torch.cat(x[1:3], 1) : (3780,4)  归一化的 xywh
 '''
 class Darknet(nn.Module):
     # YOLOv3 object detection model
@@ -302,7 +302,7 @@ class Darknet(nn.Module):
                            torch_utils.scale_img(x.flip(3), s[0]),  # flip-lr and scale
                            torch_utils.scale_img(x, s[1]),  # scale
                            ), 0)
-
+        verbose = True
         for i, module in enumerate(self.module_list):
             name = module.__class__.__name__
             if name in ['WeightedFeatureFusion', 'FeatureConcat']:  # sum, concat
@@ -316,22 +316,25 @@ class Darknet(nn.Module):
             else:  # run module directly, i.e. mtype = 'convolutional', 'upsample', 'maxpool', 'batchnorm2d' etc.
                 x = module(x)
 
-            out.append(x if self.routs[i] else [])
-            if verbose:
-                print('%g/%g %s -' % (i, len(self.module_list), name), list(x.shape), str)
-                str = ''
+            out.append(x if self.routs[i] else [])  ## 这是指该层需要用到的 前面的层
+            # if verbose:
+            #     print('%g/%g %s -' % (i, len(self.module_list), name), list(x.shape), str)
+            #     str = ''
 
         if self.training:  # train
             return yolo_out
         elif ONNX_EXPORT:  # export
-            # yolo_out 是个list, 中每个元素都是 (cls,xy,wh)
+            # yolo_out: [(cls1,xy1,wh1),(cls2,xy2,wh2),(cls3,xy3,wh3)]
             # zip(*yolo_out)后大概是 (cls1,cls2...),(xy1,xy2...),(wh1,wh2,...)
             # torch.cat(x, 0)后大概是: [好长一串cls1,好长一串xy，好长一串wh]
             x = [torch.cat(x, 0) for x in zip(*yolo_out)]
+            # print(len(x)) ## 3
+            # print(x[0].shape)  ## [3780,80]
+
             return x[0], torch.cat(x[1:3], 1)
         else:  # inference or test
-            # inference output shape [(bs,3x13x13,85)...], training output shape[(bs, 3, 13, 13, 85)...]  列表里是3个元素（3个yolo层）
-            x, p = zip(*yolo_out)
+            # yolo_out: [(x1,p1),(x2,p2),(x3,p3)] x:[bs,3x13x13,85], p [bs, 3, 13, 13, 85]
+            x, p = zip(*yolo_out) # (x1,x2,x3), (p1,p2,p3)
             x = torch.cat(x, 1)  # cat yolo outputs  shape (bs,10647,85)
             if augment:  # de-augment results   augment时的输入是[x ，x_s1， x_s2]三张图,因此 x shape: (3bs,10647,85)
                 x = torch.split(x, nb, dim=0)  # shape [A B C]，每个shape 都是 (bs,10647,85)  和 np.split不一样

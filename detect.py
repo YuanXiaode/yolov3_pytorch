@@ -17,7 +17,7 @@ def detect(save_img=False):
     os.makedirs(out)  # make new output folder
 
     # Initialize model
-    model = Darknet(opt.cfg, imgsz,verbose = True)
+    model = Darknet(opt.cfg, imgsz,verbose = False)
 
     # Load weights
     attempt_download(weights)  ## in model
