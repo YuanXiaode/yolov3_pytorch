@@ -101,10 +101,16 @@ def model_info(model, verbose=False):
     n_g = sum(x.numel() for x in model.parameters() if x.requires_grad)  # number gradients
     if verbose:
         print('%5s %40s %9s %12s %20s %10s %10s' % ('layer', 'name', 'gradient', 'parameters', 'shape', 'mu', 'sigma'))
-        for i, (name, p) in enumerate(model.named_parameters()):
+        for i, (name, p) in enumerate(model.named_parameters()):  ## n
             name = name.replace('module_list.', '')
             print('%5g %40s %9s %12g %20s %10.3g %10.3g' %
                   (i, name, p.requires_grad, p.numel(), list(p.shape), p.mean(), p.std()))
+
+        print('%5s %40s %40s %9s %12s %20s %10s %10s' % ('layer', 'module_name','name', 'gradient', 'parameters', 'shape', 'mu', 'sigma'))
+
+        for i, module in enumerate(model.state_dict()):
+            module_name = module
+            print(i,"   ",module_name)
 
     try:  # FLOPS
         from thop import profile

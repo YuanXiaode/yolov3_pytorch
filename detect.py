@@ -17,7 +17,7 @@ def detect(save_img=False):
     os.makedirs(out)  # make new output folder
 
     # Initialize model
-    model = Darknet(opt.cfg, imgsz)
+    model = Darknet(opt.cfg, imgsz,verbose = True)
 
     # Load weights
     attempt_download(weights)  ## in model
@@ -35,8 +35,9 @@ def detect(save_img=False):
 
     # Eval mode
     model.to(device).eval()
-    for k in model.__dict__.keys():
-        print(k,"    ",getattr(model, k))
+    print("!Eval mode")
+    # for k in model.__dict__.keys():
+    #     print(k,"    ",getattr(model, k))
 
 
     # Fuse Conv2d + BatchNorm2d layers
