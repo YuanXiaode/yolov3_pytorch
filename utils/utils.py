@@ -528,7 +528,9 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=T
         # Detections matrix nx6 (xyxy, conf, cls)
         if multi_label:
             i, j = (x[:, 5:] > conf_thres).nonzero().t()  ## i,j:非零值的索引
-            x = torch.cat((box[i], x[i, j + 5].unsqueeze(1), j.float().unsqueeze(1)), 1)    ## (30,6) [x1,y1,x2,y2, conf, class_id]
+            # box[i]: 30,4    x[i, j + 5].unsqueeze(1): 30 1
+            # output x: (30,6) [x1,y1,x2,y2, conf, class_id]
+            x = torch.cat((box[i], x[i, j + 5].unsqueeze(1), j.float().unsqueeze(1)), 1)
         else:  # best class only
             conf, j = x[:, 5:].max(1)
             x = torch.cat((box, conf.unsqueeze(1), j.float().unsqueeze(1)), 1)[conf > conf_thres]
@@ -557,9 +559,10 @@ def non_max_suppression(prediction, conf_thres=0.1, iou_thres=0.6, multi_label=T
         boxes, scores = x[:, :4].clone() + c.view(-1, 1) * max_wh, x[:, 4]  # boxes (offset by class), scores   解释：+ c.view(-1, 1) * max_wh 将不同的class的坐标分开，聪明呀~
         i = torchvision.ops.boxes.nms(boxes, scores, iou_thres)  ## shape (1)
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
+            # 大致意思就是: x[i] = (s1w1 + s2w2 + .. +s30w30) / (w1+w2+...+w30), 其中wj = scores[j] if iou(x[i],x[j]) > iou_thres else 0
             try:  # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
-                iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix  (5,29)
-                weights = iou * scores[None]  # box weights
+                iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix  (6,30)
+                weights = iou * scores[None]  # box weights   ## (6,30)
                 x[i, :4] = torch.mm(weights, x[:, :4]).float() / weights.sum(1, keepdim=True)  # merged boxes
                 # i = i[iou.sum(1) > 1]  # require redundancy
             except:  # possible CUDA error https://github.com/ultralytics/yolov3/issues/1139

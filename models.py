@@ -374,6 +374,7 @@ def load_darknet_weights(self, weights, cutoff=-1):
 
     # Establish cutoffs (load layers between 0 and cutoff. if cutoff = -1 all are loaded)
     file = Path(weights).name
+    # 算了一下，这里75应该只是backbone的参数(yolov3中的backbone由52个（con+bn）层 + 23个shutcut组成)
     if file == 'darknet53.conv.74':
         cutoff = 75
     elif file == 'yolov3-tiny.conv.15':
