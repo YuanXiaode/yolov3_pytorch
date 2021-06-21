@@ -256,7 +256,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
 ## 输出： img (bs,h,w,c)  RGB格式 0-255
-##       label (N,6)  N指一个bs中所有label的数量，后面的6指的是 (image_index,class,x,y,w,h)  x,y,w,h 是归一化的
+##       label (N,6)  N指一个bs中所有label的数量，后面的6指的是 (image_index,class,x,y,w,h)  x,y,w,h 是归一化的,x,y,指
 ##       path  元组， 每个元素都是图片路径
 ##       shapes 元组，每个元素都是 (h0, w0), ((h / h0, w / w0), pad)
 class LoadImagesAndLabels(Dataset):  # for training/testing
@@ -453,16 +453,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         else:
             # Load image
-            img, (h0, w0), (h, w) = load_image(self, index)
+            img, (h0, w0), (h, w) = load_image(self, index)  ## 按比例resize，如(1080,720) -> (416,277)
 
-            # Letterbox
+            ## batch_shapes的shape为32的倍数，如 (1080,720) -> (416,320)
+            # Letterbox  (416,320) -> (416,416) for auto=False;  auto=True是补成32倍数的最小矩形，如 (416,277) -> (416,288)
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
             img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
             # Load labels
             labels = []
-            x = self.labels[index]
+            x = self.labels[index]  # [class,x,y,x,y]
 
             if x.size > 0:
                 # Normalized xywh to pixel xyxy format
@@ -514,7 +515,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         labels_out = torch.zeros((nL, 6))
         if nL:
-            labels_out[:, 1:] = torch.from_numpy(labels)  ## image index, class, xywh
+            labels_out[:, 1:] = torch.from_numpy(labels)  ## image index, class, x,y,w,h
 
         # Convert
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -529,7 +530,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed
-        for i, l in enumerate(label):
+        for i, l in enumerate(label):  ## label:(label1,label2,...),每个labeli 维度为(nlabel,6)
             l[:, 0] = i  # add target image index for build_targets()
         return torch.stack(img, 0), torch.cat(label, 0), path, shapes
 

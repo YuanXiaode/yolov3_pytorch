@@ -108,7 +108,7 @@ def test(cfg,
             labels = targets[targets[:, 0] == si, 1:]  ## (tar_num,5)
             nl = len(labels)
             tcls = labels[:, 0].tolist() if nl else []  # target class
-            seen += 1
+            seen += 1  ## 记录训练的图片数目
 
             if pred is None:  ## 该图片不存在预测框
                 if nl:
@@ -154,11 +154,11 @@ def test(cfg,
                     # Search for detections
                     if pi.shape[0]:
                         # Prediction to target ious
-                        ious, i = box_iou(pred[pi, :4], tbox[ti]).max(1)  # best ious, indices   每一个pre的最大iou对应的tar的值和索引
+                        ious, i = box_iou(pred[pi, :4], tbox[ti]).max(1)  # best ious, indices
 
                         # Append detections  这里是为pre分配true_box
                         for j in (ious > iouv[0]).nonzero():  ## 只记录大于 iouv[0] 的 box 的索引
-                            d = ti[i[j]]  # detected target   i[j] 表示第j个框对应的最大iou的tar的索引
+                            d = ti[i[j]]  # detected target   i[j] 表示第j个预测框对应的best iou的 indeices
                             if d not in detected:
                                 detected.append(d)
                                 correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn  ## pi[j] 表示匹配到true_box的预测框的索引

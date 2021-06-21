@@ -59,7 +59,7 @@ def load_classes(path):
         names = f.read().split('\n')
     return list(filter(None, names))  # filter removes empty strings (such as last line)
 
-# labels : list，共有n个元素（n指图片数目），如[(1,6),(2,6),(5,6)...]  6指(class,x,y,w,h)   类似[(1,6),(2,6),(5,6)...]
+# labels : list[(n1,6),(n2,6),(n3,6)...]  6指(class,x,y,w,h), n1指该图label数目，len(labels)是图片数目
 # 该类别数目越多，权重越小
 def labels_to_class_weights(labels, nc=80):
     # Get class weights (inverse frequency) from training labels
@@ -145,7 +145,7 @@ def clip_coords(boxes, img_shape):
     boxes[:, 3].clamp_(0, img_shape[0])  # y2
 
 # tp shape (一个bs内预测框满足阈值的预测框总数,10 for mAP0.5...0.95)
-# 返回依次是 p shape(s)，置信度0.1处的查准率，r shape(s)置信度0.1处的召回率
+# 返回依次是 p shape(class,10)，置信度0.1处的查准率，r shape(class,10)置信度0.1处的召回率
 # ap shape(class,10) 指AP,  f1 就是F值 , 类别id
 def ap_per_class(tp, conf, pred_cls, target_cls):
     """ Compute the average precision, given the recall and precision curves.
@@ -193,7 +193,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
 
             # Precision
             precision = tpc / (tpc + fpc)  # precision curve
-            p[ci] = np.interp(-pr_score, -conf[i], precision[:, 0])  # p at pr_score  横坐标：-conf[i] 纵坐标：precision[:, 0]
+            p[ci] = np.interp(-pr_score, -conf[i], precision[:, 0])  # p at -pr_score  横坐标：-conf[i] 纵坐标：precision[:, 0]
 
             # AP from recall-precision curve
             for j in range(tp.shape[1]):
@@ -358,8 +358,8 @@ def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#iss
     # return positive, negative label smoothing BCE targets
     return 1.0 - 0.5 * eps, 0.5 * eps
 
-## p：预测值  [(bs,3,13,13,85),(bs,3,26,26,85),(bs,3,52,52,85)]
-## targets shape (N,6)  N是一个bs中label的总数量，后面的6指的是 (image_index,class,x,y,w,h)
+## p：预测值  [(bs,3,13,13,85),(bs,3,26,26,85),(bs,3,52,52,85)], 坐标未解码
+## targets shape (N,6)  N是一个bs中label的总数量，后面的6指的是 (image_index,class,x,y,w,h)，x,y是center坐标
 def compute_loss(p, targets, model):  # predictions, targets, model
     ft = torch.cuda.FloatTensor if p[0].is_cuda else torch.Tensor
     lcls, lbox, lobj = ft([0]), ft([0]), ft([0])
@@ -383,7 +383,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
 
     # per output
     nt = 0  # targets
-    for i, pi in enumerate(p):  # layer index, layer predictions
+    for i, pi in enumerate(p):  # layer index, layer predictions yolo层数
         # b表示bs中的图片id，a表示对应的anchor，gj,gi表示lable框所在的grid
         b, a, gj, gi = indices[i]  # image_id, anchor, gridy, gridx   shape (n,)
         tobj = torch.zeros_like(pi[..., 0])  # target obj  ## (bs,3,feature_size,feature_size)
@@ -454,19 +454,19 @@ def build_targets(p, targets, model):
 
             # a 表示符合阈值的anhor的编号  shape (n)
             # t 表示符合阈值的targets     shape (n,6)
-            a, t = at[j], t.repeat(na, 1, 1)[j]  # filter  a shape (n), t shape (n，2)
+            a, t = at[j], t.repeat(na, 1, 1)[j]  # filter  a shape: (n), t shape: (n，2)
 
             # overlaps
             gxy = t[:, 2:4]  # grid xy
             z = torch.zeros_like(gxy)  # (n,2)
-            # 看不懂
-            if style == 'rect2':
-                g = 0.2  # offset
-                j, k = ((gxy % 1. < g) & (gxy > 1.)).T ## 难懂，j代表满足条件的横坐标，k代表纵坐标，条件是 大于1.0，且和边界距离小于0.2
-                a, t = torch.cat((a, a[j], a[k]), 0), torch.cat((t, t[j], t[k]), 0)
-                offsets = torch.cat((z, z[j] + off[0], z[k] + off[1]), 0) * g  ## 移动 g  维度都没法确定
 
-            elif style == 'rect4':
+            if style == 'rect2': ## 和左边界太近，就移动一下
+                g = 0.2  # offset
+                j, k = ((gxy % 1. < g) & (gxy > 1.)).T   ## j代表满足条件的横坐标，k代表纵坐标，条件是 大于1.0，且和边界距离小于0.2,如 j :(False,False,True....) shape (n)
+                a, t = torch.cat((a, a[j], a[k]), 0), torch.cat((t, t[j], t[k]), 0)
+                offsets = torch.cat((z, z[j] + off[0], z[k] + off[1]), 0) * g  ## 大概就是，离边界小于g的地方往右（下）移动一个g
+
+            elif style == 'rect4':  ## 和左右边界过近也移动一下
                 g = 0.5  # offset
                 j, k = ((gxy % 1. < g) & (gxy > 1.)).T
                 l, m = ((gxy % 1. > (1 - g)) & (gxy < (gain[[2, 3]] - 1.))).T

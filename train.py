@@ -108,6 +108,8 @@ def train(hyp):
         optimizer = optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)   ## 注意用了 nesterov
     optimizer.add_param_group({'params': pg1, 'weight_decay': hyp['weight_decay']})  # add pg1 with weight_decay
     optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
+    ## add_param_group的默认参数回自动继承optimizer初始化时给的参数
+
     print('Optimizer groups: %g .bias, %g Conv2d.weight, %g other' % (len(pg2), len(pg1), len(pg0)))
     del pg0, pg1, pg2
 
@@ -209,7 +211,7 @@ def train(hyp):
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
                                              num_workers=nw,
-                                             shuffle=not opt.rect,  # Shuffle=True unless rectangular training is used  训练时一般不需要 opt.rect
+                                             shuffle=not opt.rect,  # why?
                                              pin_memory=True,
                                              collate_fn=dataset.collate_fn)
 
@@ -247,7 +249,7 @@ def train(hyp):
         model.train()
 
         # Update image weights (optional)
-        if dataset.image_weights:
+        if dataset.image_weights:  ## 按图像权重随机选择图像
             w = model.class_weights.cpu().numpy() * (1 - maps) ** 2  # class weights 类别数目少，ap低的类别的权重大（样本不均匀和难例挖掘）
             image_weights = labels_to_image_weights(dataset.labels, nc=nc, class_weights=w)  ## shape (n,)，n is number of images
             dataset.indices = random.choices(range(dataset.n), weights=image_weights, k=dataset.n)  # rand weighted idx  k指选择dataset.n个图片
