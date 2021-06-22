@@ -100,13 +100,15 @@ class Ensemble(nn.ModuleList):
     def __init__(self):
         super(Ensemble, self).__init__()
 
+
     def forward(self, x, augment=False):
         y = []
         for module in self:
             y.append(module(x, augment)[0])
         # y = torch.stack(y).max(0)[0]  # max ensemble
         # y = torch.stack(y).mean(0)  # mean ensemble
-        y = torch.cat(y, 1)  # nms ensemble
+        y = torch.cat(y, 1)  # nms ensemble  shape: [1,N,85]
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!")
         return y, None  # inference, train output
 
 
@@ -117,12 +119,12 @@ def attempt_load(weights, map_location=None, inplace=True):
     model = Ensemble()
     for w in weights if isinstance(weights, list) else [weights]:
         ckpt = torch.load(attempt_download(w), map_location=map_location)  # load
+        # print(ckpt['ema' if ckpt.get('ema') else 'model'])
         model.append(ckpt['ema' if ckpt.get('ema') else 'model'].float().fuse().eval())  # FP32 model
-
     # Compatibility updates
     for m in model.modules():
         if type(m) in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, Detect, Model]:
-            m.inplace = inplace  # pytorch 1.7.0 compatibility
+            m.inplace = inplace  # pytorch 1.7.0 compatibility  原地改动变量，省内存 ex. output = nn.RELU(input)，调用后input的值也会发生改变
         elif type(m) is Conv:
             m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
 
