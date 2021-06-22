@@ -387,7 +387,7 @@ def train(hyp):
         fresults, flast, fbest = 'results%s.txt' % n, wdir + 'last%s.pt' % n, wdir + 'best%s.pt' % n
         for f1, f2 in zip([wdir + 'last.pt', wdir + 'best.pt', 'results.txt'], [flast, fbest, fresults]):
             if os.path.exists(f1):
-                os.rename(f1, f2)  # rename     weights/last.pt -> weights/results_name.pt
+                os.rename(f1, f2)  # rename     weights/last.pt -> weights/last_name.pt
                 ispt = f2.endswith('.pt')  # is *.pt
                 strip_optimizer(f2) if ispt else None  # strip optimizer  训练完了，去除optimizer参数
                 os.system('gsutil cp %s gs://%s/weights' % (f2, opt.bucket)) if opt.bucket and ispt else None  # upload
@@ -452,7 +452,7 @@ if __name__ == '__main__':
             if os.path.exists('evolve.txt'):  # if evolve.txt exists: select best hyps and mutate
                 # Select parent(s)
                 parent = 'single'  # parent selection method: 'single' or 'weighted'
-                x = np.loadtxt('evolve.txt', ndmin=2)  # x 保存的是 (P, R, mAP, F1, test_losses=(GIoU, obj, cls)) + hyp
+                x = np.loadtxt('evolve.txt', ndmin=2)  # x 保存的是 (P, R, mAP, F1, test_losses=(GIoU, obj, cls)) + hyp  在 print_mutation 中保存
                 n = min(5, len(x))  # number of previous results to consider  代码中就是1
                 x = x[np.argsort(-fitness(x))][:n]  # top n mutations
                 w = fitness(x) - fitness(x).min()  # weights   适应度越高，w越大

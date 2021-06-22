@@ -18,6 +18,8 @@ def detect(save_img=False):
 
     # Initialize model
     model = Darknet(opt.cfg, imgsz,verbose = False)
+    for k in model.__dict__.keys():
+        print(k)
 
     # Load weights
     attempt_download(weights)  ## in model

@@ -154,7 +154,7 @@ class ModelEMA:
     RMSprop with a short 2.4-3 epoch decay period and slow LR decay rate of .96-.99 requires EMA
     smoothing of weights to match results. Pay attention to the decay constant you are using
     relative to your update count per epoch.
-    To keep EMA from using GPU resources, set device='cpu'. This will save a bit of memory but
+    To keep EMA from using GPU resources. Set device='cpu', this will save a bit of memory but
     disable validation of the EMA weights. Validation will have to be done manually in a separate
     process, or after the training stops converging.
     This class is sensitive where it is initialized in the sequence of model init,
