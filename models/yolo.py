@@ -27,6 +27,11 @@ except ImportError:
 
 
 class Detect(nn.Module):
+    '''
+        output:
+        x : [x1,x2,x3]: xi: (bs,3,Fsize,Fsize,85)
+        torch.cat(z, 1): (bs,N,85), N is Fsize1 ** 2 + Fsize2 ** 2 + Fsize3 ** 2
+    '''
     stride = None  # strides computed during build
     onnx_dynamic = False  # ONNX export parameter
 
@@ -38,7 +43,7 @@ class Detect(nn.Module):
         self.na = len(anchors[0]) // 2  # number of anchors
         self.grid = [torch.zeros(1)] * self.nl  # init grid
         a = torch.tensor(anchors).float().view(self.nl, -1, 2)
-        self.register_buffer('anchors', a)  # shape(nl,na,2)
+        self.register_buffer('anchors', a)  # shape(nl,na,2)  buffer：反向传播时不更新的参数，该参数会自动保存在model.buffers和Orderdict中
         self.register_buffer('anchor_grid', a.clone().view(self.nl, 1, -1, 1, 1, 2))  # shape(nl,1,na,1,1,2)
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.inplace = inplace  # use in-place ops (e.g. slice assignment)
@@ -63,9 +68,9 @@ class Detect(nn.Module):
                     xy = (y[..., 0:2] * 2. - 0.5 + self.grid[i]) * self.stride[i]  # xy
                     wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i].view(1, self.na, 1, 1, 2)  # wh
                     y = torch.cat((xy, wh, y[..., 4:]), -1)
-                z.append(y.view(bs, -1, self.no))
+                z.append(y.view(bs, -1, self.no))  # (bs,1200,85)
 
-        return x if self.training else (torch.cat(z, 1), x)
+        return x if self.training else (torch.cat(z, 1), x)  # torch.cat(z, 1): (bs,N,85)
 
     @staticmethod
     def _make_grid(nx=20, ny=20):

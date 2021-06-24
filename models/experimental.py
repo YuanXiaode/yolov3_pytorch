@@ -100,7 +100,6 @@ class Ensemble(nn.ModuleList):
     def __init__(self):
         super(Ensemble, self).__init__()
 
-
     def forward(self, x, augment=False):
         y = []
         for module in self:
@@ -108,7 +107,6 @@ class Ensemble(nn.ModuleList):
         # y = torch.stack(y).max(0)[0]  # max ensemble
         # y = torch.stack(y).mean(0)  # mean ensemble
         y = torch.cat(y, 1)  # nms ensemble  shape: [1,N,85]
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!")
         return y, None  # inference, train output
 
 
@@ -127,7 +125,6 @@ def attempt_load(weights, map_location=None, inplace=True):
             m.inplace = inplace  # pytorch 1.7.0 compatibility  原地改动变量，省内存 ex. output = nn.RELU(input)，调用后input的值也会发生改变
         elif type(m) is Conv:
             m._non_persistent_buffers_set = set()  # pytorch 1.6.0 compatibility
-
     if len(model) == 1:
         return model[-1]  # return model
     else:
