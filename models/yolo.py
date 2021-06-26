@@ -52,6 +52,7 @@ class Detect(nn.Module):
         # x = x.copy()  # for profiling
         z = []  # inference output
         for i in range(self.nl):
+            print(i,x[i].shape)
             x[i] = self.m[i](x[i])  # conv
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
@@ -69,7 +70,6 @@ class Detect(nn.Module):
                     wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i].view(1, self.na, 1, 1, 2)  # wh
                     y = torch.cat((xy, wh, y[..., 4:]), -1)
                 z.append(y.view(bs, -1, self.no))  # (bs,1200,85)
-
         return x if self.training else (torch.cat(z, 1), x)  # torch.cat(z, 1): (bs,N,85)
 
     @staticmethod
@@ -125,7 +125,7 @@ class Model(nn.Module):
             return self.forward_augment(x)  # augmented inference, None
         else:
             return self.forward_once(x, profile)  # single-scale inference, train
-
+    # 用于inference，每一张图化作三个尺度输入，得到3个输出值，shape [bs,ni,85]，然后将三个输出结果concat成[bs,N,85],N = n1 + n2 + n3
     def forward_augment(self, x):
         img_size = x.shape[-2:]  # height, width
         s = [1, 0.83, 0.67]  # scales
@@ -144,8 +144,7 @@ class Model(nn.Module):
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-
-            if profile:
+            if profile and type(m) not in [Detect]:
                 o = thop.profile(m, inputs=(x,), verbose=False)[0] / 1E9 * 2 if thop else 0  # FLOPS
                 t = time_synchronized()
                 for _ in range(10):
@@ -280,7 +279,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         np = sum([x.numel() for x in m_.parameters()])  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
-        logger.info('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, np, t, args))  # print
+        # logger.info('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, np, t, args))  # print
         save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
         layers.append(m_)
         if i == 0:
@@ -303,8 +302,8 @@ if __name__ == '__main__':
     model.train()
 
     # Profile
-    # img = torch.rand(8 if torch.cuda.is_available() else 1, 3, 320, 320).to(device)
-    # y = model(img, profile=True)
+    img = torch.rand(8 if torch.cuda.is_available() else 1, 3, 320, 320).to(device)
+    y = model(img, profile=True)
 
     # Tensorboard (not working https://github.com/ultralytics/yolov5/issues/2898)
     # from torch.utils.tensorboard import SummaryWriter

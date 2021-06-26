@@ -77,10 +77,10 @@ class TransformerBlock(nn.Module):
         if self.conv is not None:
             x = self.conv(x)
         b, _, w, h = x.shape
-        p = x.flatten(2)
-        p = p.unsqueeze(0)
+        p = x.flatten(2)  # b,c1,w x h
+        p = p.unsqueeze(0) #
         p = p.transpose(0, 3)
-        p = p.squeeze(3)
+        p = p.squeeze(3)  # w x h, b, c1
         e = self.linear(p)
         x = p + e
 
@@ -178,6 +178,7 @@ class Contract(nn.Module):
         super().__init__()
         self.gain = gain
 
+    # 这一顿操作 = torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1)
     def forward(self, x):
         N, C, H, W = x.size()  # assert (H / s == 0) and (W / s == 0), 'Indivisible gain'
         s = self.gain

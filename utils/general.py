@@ -495,6 +495,9 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
                         labels=(), max_det=300):
     """Runs Non-Maximum Suppression (NMS) on inference results
 
+    input:
+        prediction: shape is (bs,N,85), N is all per boxes in bs images
+
     Returns:
          list of detections, on (n,6) tensor per image [xyxy, conf, cls]
     """
@@ -519,7 +522,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
-        x = x[xc[xi]]  # confidence
+        x = x[xc[xi]]  # confidence  (n,85)
 
         # Cat apriori labels if autolabelling
         if labels and len(labels[xi]):
@@ -563,7 +566,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         elif n > max_nms:  # excess boxes
             x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence
 
-        # Batched NMS
+        # Batched NMS 将不同class的box坐标隔开再进行NMS
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
         boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
         i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
@@ -575,7 +578,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             weights = iou * scores[None]  # box weights
             x[i, :4] = torch.mm(weights, x[:, :4]).float() / weights.sum(1, keepdim=True)  # merged boxes
             if redundant:
-                i = i[iou.sum(1) > 1]  # require redundancy
+                i = i[iou.sum(1) > 1]  # require redundancy  iou.sum(1) <= 1 与所有box都不不相交
 
         output[xi] = x[i]
         if (time.time() - t) > time_limit:
