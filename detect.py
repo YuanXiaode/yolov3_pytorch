@@ -52,7 +52,7 @@ def detect(opt):
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
-    # Run inference
+    # Run inference  可能第一次跑时间较长，所以先跑一次，测后面的时间
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
     t0 = time.time()
@@ -65,11 +65,11 @@ def detect(opt):
 
         # Inference
         t1 = time_synchronized()
-        pred = model(img, augment=opt.augment)[0]
+        pred = model(img, augment=opt.augment)[0]  # (bs,N,85)
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, opt.classes, opt.agnostic_nms,
-                                   max_det=opt.max_det)
+                                   max_det=opt.max_det)  #  output: list which has bs elements and per element shape is (n,6)
         t2 = time_synchronized()
 
         # Apply Classifier
@@ -89,7 +89,7 @@ def detect(opt):
             s += '%gx%g ' % img.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if opt.save_crop else im0  # for opt.save_crop
-            if len(det):
+            if len(det):  # det: (n,85)
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 

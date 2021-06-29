@@ -253,7 +253,7 @@ def make_divisible(x, divisor):
 
 def clean_str(s):
     # Cleans a string by replacing special characters with underscore _
-    return re.sub(pattern="[|@#!¡·$€%&()=?¿^*;:,¨´><+]", repl="_", string=s)
+    return re.sub(pattern="[|@#!¡·$€%&()=?¿^*;:,¨´><+]", repl="_", string=s) # 将奇形怪状的字符用 _代替
 
 
 def one_cycle(y1=0.0, y2=1.0, steps=100):
