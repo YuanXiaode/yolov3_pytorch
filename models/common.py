@@ -254,7 +254,7 @@ class AutoShape(nn.Module):
         t = [time_synchronized()]
         p = next(self.model.parameters())  # for device and type
         if isinstance(imgs, torch.Tensor):  # torch
-            with amp.autocast(enabled=p.device.type != 'cpu'):
+            with amp.autocast(enabled=p.device.type != 'cpu'):  # 半精度推理
                 return self.model(imgs.to(p.device).type_as(p), augment, profile)  # inference
 
         # Pre-process
@@ -267,7 +267,7 @@ class AutoShape(nn.Module):
             elif isinstance(im, Image.Image):  # PIL Image
                 im, f = np.asarray(im), getattr(im, 'filename', f) or f
             files.append(Path(f).with_suffix('.jpg').name)
-            if im.shape[0] < 5:  # image in CHW
+            if im.shape[0] < 5:  # image in CHW    这里先转成HWC，下面会再转一次成CHW
                 im = im.transpose((1, 2, 0))  # reverse dataloader .transpose(2, 0, 1)
             im = im[:, :, :3] if im.ndim == 3 else np.tile(im[:, :, None], 3)  # enforce 3ch input
             s = im.shape[:2]  # HWC
@@ -275,6 +275,7 @@ class AutoShape(nn.Module):
             g = (size / max(s))  # gain
             shape1.append([y * g for y in s])
             imgs[i] = im if im.data.contiguous else np.ascontiguousarray(im)  # update
+        # 长边 = size，短边按比例缩放，且补成最大stride的倍数
         shape1 = [make_divisible(x, int(self.stride.max())) for x in np.stack(shape1, 0).max(0)]  # inference shape
         x = [letterbox(im, new_shape=shape1, auto=False)[0] for im in imgs]  # pad
         x = np.stack(x, 0) if n > 1 else x[0][None]  # stack
@@ -301,7 +302,7 @@ class Detections:
     def __init__(self, imgs, pred, files, times=None, names=None, shape=None):
         super(Detections, self).__init__()
         d = pred[0].device  # device
-        gn = [torch.tensor([*[im.shape[i] for i in [1, 0, 1, 0]], 1., 1.], device=d) for im in imgs]  # normalizations
+        gn = [torch.tensor([*[im.shape[i] for i in [1, 0, 1, 0]], 1., 1.], device=d) for im in imgs]  # normalizations  H,W,H,W,1.0,1.0
         self.imgs = imgs  # list of images as numpy arrays
         self.pred = pred  # list of tensors pred[0] = (xyxy, conf, cls)
         self.names = names  # class names
@@ -324,7 +325,7 @@ class Detections:
                 if show or save or render or crop:
                     for *box, conf, cls in pred:  # xyxy, confidence, class
                         label = f'{self.names[int(cls)]} {conf:.2f}'
-                        if crop:
+                        if crop:  ## 保存boxes区域（不是整图）
                             save_one_box(box, im, file=save_dir / 'crops' / self.names[int(cls)] / self.files[i])
                         else:  # all others
                             plot_one_box(box, im, label=label, color=colors(cls))
@@ -361,6 +362,7 @@ class Detections:
         self.display(render=True)  # render results
         return self.imgs
 
+    # x: [x1,x2,..,xbs], which xi shape (x,y,x,y,conf,cls)
     def pandas(self):
         # return detections as pandas DataFrames, i.e. print(results.pandas().xyxy[0])
         new = copy(self)  # return copy
@@ -371,6 +373,7 @@ class Detections:
             setattr(new, k, [pd.DataFrame(x, columns=c) for x in a])
         return new
 
+    # Detections -> [Detections1, Detections2, ..., Detections_bs]
     def tolist(self):
         # return a list of Detections objects, i.e. 'for result in results.tolist():'
         x = [Detections([self.imgs[i]], [self.pred[i]], self.names, self.s) for i in range(self.n)]

@@ -29,8 +29,11 @@ except ImportError:
 class Detect(nn.Module):
     '''
         output:
-        x : [x1,x2,x3]: xi: (bs,3,Fsize,Fsize,85)
-        torch.cat(z, 1): (bs,N,85), N is Fsize1 ** 2 + Fsize2 ** 2 + Fsize3 ** 2
+        train:
+            x : [x1,x2,x3]: xi: (bs,3,Fsize,Fsize,85)
+        Inference:
+            (torch.cat(z, 1), x)
+            in which: torch.cat(z, 1): (bs,N,85), N is Fsize1 ** 2 + Fsize2 ** 2 + Fsize3 ** 2
     '''
     stride = None  # strides computed during build
     onnx_dynamic = False  # ONNX export parameter
@@ -52,7 +55,6 @@ class Detect(nn.Module):
         # x = x.copy()  # for profiling
         z = []  # inference output
         for i in range(self.nl):
-            print(i,x[i].shape)
             x[i] = self.m[i](x[i])  # conv
             bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
@@ -187,6 +189,7 @@ class Model(nn.Module):
             b.data[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
             b.data[:, 5:] += math.log(0.6 / (m.nc - 0.99)) if cf is None else torch.log(cf / cf.sum())  # cls
             mi.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
+        self._print_biases()
 
     def _print_biases(self):
         m = self.model[-1]  # Detect() module
@@ -207,7 +210,7 @@ class Model(nn.Module):
                 m.conv = fuse_conv_and_bn(m.conv, m.bn)  # update conv
                 delattr(m, 'bn')  # remove batchnorm
                 m.forward = m.fuseforward  # update forward
-        self.info()
+        self.info(verbose = False)
         return self
 
     def nms(self, mode=True):  # add or remove NMS module
@@ -235,11 +238,10 @@ class Model(nn.Module):
 
 
 def parse_model(d, ch):  # model_dict, input_channels(3)
-    logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
+    # logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
-
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
         m = eval(m) if isinstance(m, str) else m  # eval strings
