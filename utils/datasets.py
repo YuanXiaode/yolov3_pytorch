@@ -63,7 +63,7 @@ def exif_size(img):
 def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
                       rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix=''):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
-    with torch_distributed_zero_first(rank):
+    with torch_distributed_zero_first(rank):  # 见 https://blog.csdn.net/weixin_41041772/article/details/109820870
         dataset = LoadImagesAndLabels(path, imgsz, batch_size,
                                       augment=augment,  # augment images
                                       hyp=hyp,  # augmentation hyperparameters
@@ -76,19 +76,19 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
                                       prefix=prefix)
 
     batch_size = min(batch_size, len(dataset))
-    nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
+    nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers  world_size：应该是主机(节点)数
+    sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None # -1 是 CPU
     loader = torch.utils.data.DataLoader if image_weights else InfiniteDataLoader
     # Use torch.utils.data.DataLoader() if dataset.properties will update during training else InfiniteDataLoader()
     dataloader = loader(dataset,
                         batch_size=batch_size,
                         num_workers=nw,
                         sampler=sampler,
-                        pin_memory=True,
+                        pin_memory=True,  ## 会在GPU预留一处内存，加速传输
                         collate_fn=LoadImagesAndLabels.collate_fn4 if quad else LoadImagesAndLabels.collate_fn)
     return dataloader, dataset
 
-
+# 看代码实现了无限数据加载，这玩意能加速？
 class InfiniteDataLoader(torch.utils.data.dataloader.DataLoader):
     """ Dataloader that reuses workers
 
@@ -120,7 +120,7 @@ class _RepeatSampler(object):
 
     def __iter__(self):
         while True:
-            yield from iter(self.sampler)
+            yield from iter(self.sampler)  # 协程
 
 
 class LoadImages:  # for inference
@@ -341,7 +341,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
-
+## */images/*.jpg -> */labels/*.txt
 def img2label_paths(img_paths):
     # Define label paths as a function of image paths
     sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings

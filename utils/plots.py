@@ -258,7 +258,7 @@ def plot_study_txt(path='', x=None):  # from utils.plots import *; plot_study_tx
     fig2, ax2 = plt.subplots(1, 1, figsize=(8, 4), tight_layout=True)
     # for f in [Path(path) / f'study_coco_{x}.txt' for x in ['yolov3-tiny', 'yolov3', 'yolov3-spp', 'yolov5l']]:
     for f in sorted(Path(path).glob('study*.txt')):
-        y = np.loadtxt(f, dtype=np.float32, usecols=[0, 1, 2, 3, 7, 8, 9], ndmin=2).T
+        y = np.loadtxt(f, dtype=np.float32, usecols=[0, 1, 2, 3, 7, 8, 9], ndmin=2).T # 转置了，所以图片数量 = y.shape[1]
         x = np.arange(y.shape[1]) if x is None else np.array(x)
         s = ['P', 'R', 'mAP@.5', 'mAP@.5:.95', 't_inference (ms/img)', 't_NMS (ms/img)', 't_total (ms/img)']
         # for i in range(7):

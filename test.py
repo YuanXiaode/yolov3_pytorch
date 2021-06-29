@@ -74,7 +74,7 @@ def test(data,
         is_coco = data.endswith('coco.yaml')
         with open(data) as f:
             data = yaml.safe_load(f)
-    check_dataset(data)  # check
+    check_dataset(data)  # check download val datasets
     nc = 1 if single_cls else int(data['nc'])  # number of classes
     iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
     niou = iouv.numel()
@@ -86,7 +86,7 @@ def test(data,
     # Dataloader
     if not training:
         if device.type != 'cpu':
-            model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+            model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once  消除初始时间影响
         task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         dataloader = create_dataloader(data[task], imgsz, batch_size, gs, opt, pad=0.5, rect=True,
                                        prefix=colorstr(f'{task}: '))[0]
@@ -288,7 +288,7 @@ def test(data,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
-    parser.add_argument('--weights', nargs='+', type=str, default='yolov3.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', nargs='+', type=str, default='weights/yolov3.pt', help='model.pt path(s)')
     parser.add_argument('--data', type=str, default='data/coco128.yaml', help='*.data path')
     parser.add_argument('--batch-size', type=int, default=32, help='size of each image batch')
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')

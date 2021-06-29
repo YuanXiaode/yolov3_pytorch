@@ -8,8 +8,13 @@ from pathlib import Path
 import re
 import platform
 import pkg_resources as pkg
+import os
 
-dh = 0
+sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
 
-img_formats = ["aa","bb"]
-print(f'Supported formats are:images: {img_formats}')
+x = "\\images\\bus.jpg"
+
+a = 'txt'.join(x.replace(sa, sb, 1).rsplit(x.split('.')[-1], 1))
+
+print(x.replace(sa, sb, 1).rsplit(x.split('.')[-1], 1))
+
