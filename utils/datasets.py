@@ -359,7 +359,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
-        self.path = path
+        self.path = path  # ex. ../coco128/images/train2017/
 
         try:
             f = []  # image files
@@ -464,7 +464,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             try:
                 # verify images
                 im = Image.open(im_file)
-                im.verify()  # PIL verify
+                im.verify()  # PIL verify  检测文件完整性
                 shape = exif_size(im)  # image size
                 segments = []  # instance segments
                 assert (shape[0] > 9) & (shape[1] > 9), f'image size {shape} <10 pixels'
