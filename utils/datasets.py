@@ -347,7 +347,10 @@ def img2label_paths(img_paths):
     sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
     return ['txt'.join(x.replace(sa, sb, 1).rsplit(x.split('.')[-1], 1)) for x in img_paths]
 
-
+## 输出： img (bs,h,w,c)  RGB格式 0-255
+##       label (N,6)  N指一个bs中所有label的数量，后面的6指的是 (image_index,class,x,y,w,h)  x,y,w,h 是归一化的,x,y,指
+##       path  元组， 每个元素都是图片路径
+##       shapes 元组，每个元素都是 (h0, w0), ((h / h0, w / w0), pad)
 class LoadImagesAndLabels(Dataset):  # for training/testing
     def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
                  cache_images=False, single_cls=False, stride=32, pad=0.0, prefix=''):
@@ -418,12 +421,14 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.n = n
         self.indices = range(n)
 
+        # 思路如下：将数据按 h / w 从小到大排列，取 h / w 最接近1的那个图片的shape来计算bs_shape
+        # 注意bs_shape为 hw, 均为stride的整倍数。
         # Rectangular Training
         if self.rect:
             # Sort by aspect ratio
             s = self.shapes  # wh
-            ar = s[:, 1] / s[:, 0]  # aspect ratio
-            irect = ar.argsort()
+            ar = s[:, 1] / s[:, 0]  # aspect ratio h/w
+            irect = ar.argsort() # 小到大排序
             self.img_files = [self.img_files[i] for i in irect]
             self.label_files = [self.label_files[i] for i in irect]
             self.labels = [self.labels[i] for i in irect]
@@ -439,7 +444,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                     shapes[i] = [maxi, 1]
                 elif mini > 1:
                     shapes[i] = [1, 1 / mini]
-
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(np.int) * stride
 
         # Cache images into memory for faster training (WARNING: large datasets may exceed system RAM)
@@ -447,9 +451,13 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if cache_images:
             gb = 0  # Gigabytes of cached images
             self.img_hw0, self.img_hw = [None] * n, [None] * n
+            # 难理解 8个线程执行load_image函数n次，imap（函数，迭代器）,其中函数是 load_image(*x)
+            # 参数是 zip(repeat(self), range(n)), repeat 表示将self包装成一个无限重复的迭代器,zip将两个迭代器打包
+            # (*x)表示将参数解包，因此等价于 load_image（self,i）
+            # 返回的results同样是一个迭代器，因此每迭代一次results，就会计算一次load_image（self,i）
             results = ThreadPool(8).imap(lambda x: load_image(*x), zip(repeat(self), range(n)))  # 8 threads
             pbar = tqdm(enumerate(results), total=n)
-            for i, x in pbar:
+            for i, x in pbar:  # 这里x 表示 load_image 的返回值
                 self.imgs[i], self.img_hw0[i], self.img_hw[i] = x  # img, hw_original, hw_resized = load_image(self, i)
                 gb += self.imgs[i].nbytes
                 pbar.desc = f'{prefix}Caching images ({gb / 1E9:.1f}GB)'
@@ -475,7 +483,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                     nf += 1  # label found
                     with open(lb_file, 'r') as f:
                         l = [x.split() for x in f.read().strip().splitlines() if len(x)]
-                        if any([len(x) > 8 for x in l]):  # is segment
+                        if any([len(x) > 8 for x in l]):  # is segment  分割数据 cls,xy1,xy2,xy3,xy4...
                             classes = np.array([x[0] for x in l], dtype=np.float32)
                             segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in l]  # (cls, xy1...)
                             l = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
@@ -527,7 +535,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp['mosaic']
-        if mosaic:
+        if mosaic: # 4图拼一图 + 透视/放射变换
             # Load mosaic
             img, labels = load_mosaic(self, index)
             shapes = None
@@ -541,10 +549,12 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         else:
             # Load image
+            # 假设 h > w, 则 (h,w) -> (img_size, img_size * w / h)
             img, (h0, w0), (h, w) = load_image(self, index)
 
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
+            # (img_size, img_size * w / h) -> shape
             img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
@@ -611,16 +621,16 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         n = len(shapes) // 4
         img4, label4, path4, shapes4 = [], [], path[:n], shapes[:n]
 
-        ho = torch.tensor([[0., 0, 0, 1, 0, 0]])
+        ho = torch.tensor([[0., 0, 0, 1, 0, 0]]) # 对应label = image_id,class,x,y,w,h
         wo = torch.tensor([[0., 0, 1, 0, 0, 0]])
         s = torch.tensor([[1, 1, .5, .5, .5, .5]])  # scale
         for i in range(n):  # zidane torch.zeros(16,3,720,1280)  # BCHW
             i *= 4
-            if random.random() < 0.5:
+            if random.random() < 0.5: # 图放大两倍
                 im = F.interpolate(img[i].unsqueeze(0).float(), scale_factor=2., mode='bilinear', align_corners=False)[
                     0].type(img[i].type())
                 l = label[i]
-            else:
+            else:                     # 四张图拼起来，且label合一起
                 im = torch.cat((torch.cat((img[i], img[i + 1]), 1), torch.cat((img[i + 2], img[i + 3]), 1)), 2)
                 l = torch.cat((label[i], label[i + 1] + ho, label[i + 2] + wo, label[i + 3] + ho + wo), 0) * s
             img4.append(im)
@@ -680,6 +690,7 @@ def load_mosaic(self, index):
 
     labels4, segments4 = [], []
     s = self.img_size
+    # [0.5img_size,1.5img_size]
     yc, xc = [int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border]  # mosaic center x, y
     indices = [index] + random.choices(self.indices, k=3)  # 3 additional image indices
     for i, index in enumerate(indices):
@@ -839,7 +850,7 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
     dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
     if auto:  # minimum rectangle
         dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
-    elif scaleFill:  # stretch
+    elif scaleFill:  # stretch  直接缩放成new_shape，长宽比会变
         dw, dh = 0.0, 0.0
         new_unpad = (new_shape[1], new_shape[0])
         ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
@@ -873,7 +884,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
     P[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)
     P[2, 1] = random.uniform(-perspective, perspective)  # y perspective (about x)
 
-    # Rotation and Scale
+    # Rotation and Scale 旋转缩放
     R = np.eye(3)
     a = random.uniform(-degrees, degrees)
     # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
@@ -881,22 +892,22 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
     # s = 2 ** random.uniform(-scale, scale)
     R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
 
-    # Shear
+    # Shear 剪切
     S = np.eye(3)
     S[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
     S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
 
-    # Translation
+    # Translation 平移
     T = np.eye(3)
     T[0, 2] = random.uniform(0.5 - translate, 0.5 + translate) * width  # x translation (pixels)
     T[1, 2] = random.uniform(0.5 - translate, 0.5 + translate) * height  # y translation (pixels)
 
-    # Combined rotation matrix
+    # Combined rotation matrix @表示矩阵乘法
     M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
-        if perspective:
+        if perspective: # 透视变换，直线仍是直线，但平行线不一定平行
             img = cv2.warpPerspective(img, M, dsize=(width, height), borderValue=(114, 114, 114))
-        else:  # affine
+        else:  # affine 放射变换 变换后平行线仍平行
             img = cv2.warpAffine(img, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
 
     # Visualize
@@ -911,7 +922,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
         use_segments = any(x.any() for x in segments)
         new = np.zeros((n, 4))
         if use_segments:  # warp segments
-            segments = resample_segments(segments)  # upsample
+            segments = resample_segments(segments)  # upsample   segments: list which each element is (n,2)
             for i, segment in enumerate(segments):
                 xy = np.ones((len(segment), 3))
                 xy[:, :2] = segment
@@ -919,7 +930,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
                 xy = xy[:, :2] / xy[:, 2:3] if perspective else xy[:, :2]  # perspective rescale or affine
 
                 # clip
-                new[i] = segment2box(xy, width, height)
+                new[i] = segment2box(xy, width, height) # xyxy
 
         else:  # warp boxes
             xy = np.ones((n * 4, 3))

@@ -121,14 +121,13 @@ def test(data,
         t = time_synchronized()
         out = non_max_suppression(out, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls)
         t1 += time_synchronized() - t
-
         # Statistics per image
-        for si, pred in enumerate(out):
+        for si, pred in enumerate(out): # pred shape (n,6), x1,y1,x2,y2,conf,class_id
             labels = targets[targets[:, 0] == si, 1:]
             nl = len(labels)
             tcls = labels[:, 0].tolist() if nl else []  # target class
             path = Path(paths[si])
-            seen += 1
+            seen += 1  ## 记录所有图像数目
 
             if len(pred) == 0:
                 if nl:
@@ -194,11 +193,15 @@ def test(data,
                     # Search for detections
                     if pi.shape[0]:
                         # Prediction to target ious
-                        ious, i = box_iou(predn[pi, :4], tbox[ti]).max(1)  # best ious, indices
+                        # 设 len(ti) = n, len(pi) = m, box_iou的输出为 (m,n)，下面代码找出预测框对应的最佳目标框
+                        ious, i = box_iou(predn[pi, :4], tbox[ti]).max(1)  # best ious, indices  shape (n,1)
 
                         # Append detections
-                        detected_set = set()
+                        detected_set = set() # 避免预测框分配同一个目标框
                         for j in (ious > iouv[0]).nonzero(as_tuple=False):
+                            # 有点绕,i是每个预测框对应的最佳目标框的id，j是只取最佳 iou > iouv[0]的预测框
+                            # 因此i[j]表示满足条件的预测框对应的最佳目标框的id. ti表示该类的目标框id,
+                            # 最后d表示cls类中，满足条件的预测框对应的最佳目标框的id
                             d = ti[i[j]]  # detected target
                             if d.item() not in detected_set:
                                 detected_set.add(d.item())
@@ -216,10 +219,12 @@ def test(data,
             Thread(target=plot_images, args=(img, targets, paths, f, names), daemon=True).start()
             f = save_dir / f'test_batch{batch_i}_pred.jpg'  # predictions
             Thread(target=plot_images, args=(img, output_to_target(out), paths, f, names), daemon=True).start()
+        if batch_i > 0: break
 
     # Compute statistics
-    stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
+    stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy [correct, conf, pcls, tcls]
     if len(stats) and stats[0].any():
+        # P, R, AP@0.5 F class shape (class) or (class,10)
         p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
@@ -324,7 +329,7 @@ if __name__ == '__main__':
              opt.augment,
              opt.verbose,
              save_txt=opt.save_txt | opt.save_hybrid,
-             save_hybrid=opt.save_hybrid,
+             save_hybrid=opt.save_hybrid,  # 将目标的框和预测的框放一起进行nms
              save_conf=opt.save_conf,
              opt=opt
              )

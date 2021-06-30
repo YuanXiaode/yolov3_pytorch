@@ -9,8 +9,13 @@ import re
 import platform
 import pkg_resources as pkg
 import os
+from itertools import repeat
+import time
+from multiprocessing.pool import ThreadPool
+from tqdm import tqdm
 
-a = Path("image.jpg")
+nc  = 5
+map = 6
+maps = np.zeros(nc) + map
 
-print(a.with_suffix(".png"))
-
+print(maps)

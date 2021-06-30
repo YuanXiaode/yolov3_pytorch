@@ -379,7 +379,7 @@ def segments2boxes(segments):
         boxes.append([x.min(), y.min(), x.max(), y.max()])  # cls, xyxy
     return xyxy2xywh(np.array(boxes))  # cls, xywh
 
-
+# segments: list which each element is (n,2) 对n少的分割点进行线性插值
 def resample_segments(segments, n=1000):
     # Up-sample an (n,2) segment
     for i, s in enumerate(segments):

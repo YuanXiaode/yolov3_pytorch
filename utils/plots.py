@@ -121,10 +121,12 @@ def output_to_target(output):
     targets = []
     for i, o in enumerate(output):
         for *box, conf, cls in o.cpu().numpy():
-            targets.append([i, cls, *list(*xyxy2xywh(np.array(box)[None])), conf])
+            targets.append([i, cls, *list(*xyxy2xywh(np.array(box)[None])), conf]) # np.array(box)[None] shape (1,4)
     return np.array(targets)
 
 
+# targets: gt:  shape (N,6)，6d 指的是 image_id,class,xywh
+# targets: pre: 是一个list，lenght 为 bs ,每个元素为 image_id, cls, xywh, conf
 def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max_size=640, max_subplots=16):
     # Plot image grid with labels
 
