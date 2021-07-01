@@ -50,7 +50,7 @@ def hist2d(x, y, n=100):
     # 2d histogram used in labels.png and evolve.png
     xedges, yedges = np.linspace(x.min(), x.max(), n), np.linspace(y.min(), y.max(), n)
     hist, xedges, yedges = np.histogram2d(x, y, (xedges, yedges))
-    xidx = np.clip(np.digitize(x, xedges) - 1, 0, hist.shape[0] - 1)
+    xidx = np.clip(np.digitize(x, xedges) - 1, 0, hist.shape[0] - 1) # np.digitize(x, xedges) - 1 返回x中元素在xedges的位置
     yidx = np.clip(np.digitize(y, yedges) - 1, 0, hist.shape[1] - 1)
     return np.log(hist[xidx, yidx])
 
@@ -337,7 +337,7 @@ def plot_evolution(yaml_file='data/hyp.finetune.yaml'):  # from utils.plots impo
     # Plot hyperparameter evolution results in evolve.txt
     with open(yaml_file) as f:
         hyp = yaml.safe_load(f)
-    x = np.loadtxt('evolve.txt', ndmin=2)
+    x = np.loadtxt('evolve.txt', ndmin=2) # shape (n,7+len(hyp))
     f = fitness(x)
     # weights = (f - f.min()) ** 2  # for weighted results
     plt.figure(figsize=(10, 12), tight_layout=True)

@@ -49,7 +49,7 @@ def init_seeds(seed=0):
 def get_latest_run(search_dir='.'):
     # Return path to most recent 'last.pt' in /runs (i.e. to --resume from)
     last_list = glob.glob(f'{search_dir}/**/last*.pt', recursive=True)
-    return max(last_list, key=os.path.getctime) if last_list else ''
+    return max(last_list, key=os.path.getctime) if last_list else '' # 多个last，取最近的（时间戳最大）
 
 
 def is_docker():
@@ -616,6 +616,7 @@ def print_mutation(hyp, results, yaml_file='hyp_evolved.yaml', bucket=''):
         if gsutil_getsize(url) > (os.path.getsize('evolve.txt') if os.path.exists('evolve.txt') else 0):
             os.system('gsutil cp %s .' % url)  # download evolve.txt if larger than local
 
+    # 写入结果，按fitness排序
     with open('evolve.txt', 'a') as f:  # append result
         f.write(c + b + '\n')
     x = np.unique(np.loadtxt('evolve.txt', ndmin=2), axis=0)  # load unique rows
