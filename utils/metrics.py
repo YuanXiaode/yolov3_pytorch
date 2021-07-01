@@ -14,7 +14,7 @@ def fitness(x):
     w = [0.0, 0.0, 0.1, 0.9]  # weights for [P, R, mAP@0.5, mAP@0.5:0.95]
     return (x[:, :4] * w).sum(1)
 
-
+# tp shape (N,10)
 def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir='.', names=()):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
@@ -49,6 +49,11 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir='.', names
             continue
         else:
             # Accumulate FPs and TPs
+            '''
+                cumsum 是累加函数，如
+                [[0.1,0.2,0.3]     -> [[0.1,0.2,0.3]
+                 [0.3,0.4,0.5]]        [0.4 0.6 0.8]
+            '''
             fpc = (1 - tp[i]).cumsum(0)
             tpc = tp[i].cumsum(0)
 
@@ -127,31 +132,32 @@ class ConfusionMatrix:
         detections = detections[detections[:, 4] > self.conf]
         gt_classes = labels[:, 0].int()
         detection_classes = detections[:, 5].int()
-        iou = general.box_iou(labels[:, 1:], detections[:, :4])
+        iou = general.box_iou(labels[:, 1:], detections[:, :4]) # (M,N)
 
-        x = torch.where(iou > self.iou_thres)
+        x = torch.where(iou > self.iou_thres)   # ((k),(k))，k是满足阈值条件的数量
         if x[0].shape[0]:
-            matches = torch.cat((torch.stack(x, 1), iou[x[0], x[1]][:, None]), 1).cpu().numpy()
+            matches = torch.cat((torch.stack(x, 1), iou[x[0], x[1]][:, None]), 1).cpu().numpy() # (k,3)， (label_Id,detect_Id,iou)
             if x[0].shape[0] > 1:
+                # 经下面步骤后，matches中label和pre只能一对一或者1对0匹配
+                matches = matches[matches[:, 2].argsort()[::-1]] # 按iou 大->小
+                matches = matches[np.unique(matches[:, 1], return_index=True)[1]] # 每个pre对应一个label
                 matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-                matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
+                matches = matches[np.unique(matches[:, 0], return_index=True)[1]] # 每个label也值对应一个pre
         else:
             matches = np.zeros((0, 3))
 
         n = matches.shape[0] > 0
-        m0, m1, _ = matches.transpose().astype(np.int16)
+        m0, m1, _ = matches.transpose().astype(np.int16) # m0对应label中的id,m1对应detections中的id
         for i, gc in enumerate(gt_classes):
-            j = m0 == i
-            if n and sum(j) == 1:
+            j = m0 == i               # 表示0号label，因为label数目和len(gt_classes)是一样的，都是M，因此这样循环没问题
+            if n and sum(j) == 1:     # 0号label匹配上一个pre
                 self.matrix[detection_classes[m1[j]], gc] += 1  # correct
-            else:
-                self.matrix[self.nc, gc] += 1  # background FP
+            else:                     # 0号label无匹配（因为跟0号label匹配的最大pre小于iou_thres）
+                self.matrix[self.nc, gc] += 1  # background FP      ？ 可能写错了，有label，预测不到，应该是FN？
 
         if n:
             for i, dc in enumerate(detection_classes):
-                if not any(m1 == i):
+                if not any(m1 == i):  # 预测值匹配不到一个label，预测错误，FP？
                     self.matrix[dc, self.nc] += 1  # background FN
 
     def matrix(self):
@@ -163,7 +169,6 @@ class ConfusionMatrix:
 
             array = self.matrix / (self.matrix.sum(0).reshape(1, self.nc + 1) + 1E-6)  # normalize
             array[array < 0.005] = np.nan  # don't annotate (would appear as 0.00)
-
             fig = plt.figure(figsize=(12, 9), tight_layout=True)
             sn.set(font_scale=1.0 if self.nc < 50 else 0.8)  # for label size
             labels = (0 < len(names) < 99) and len(names) == self.nc  # apply names to ticklabels
@@ -186,7 +191,7 @@ class ConfusionMatrix:
 def plot_pr_curve(px, py, ap, save_dir='pr_curve.png', names=()):
     # Precision-recall curve
     fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
-    py = np.stack(py, axis=1)
+    py = np.stack(py, axis=1)  ## shape (1000,class_num)
 
     if 0 < len(names) < 21:  # display per-class legend if < 21 classes
         for i, y in enumerate(py.T):
