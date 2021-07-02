@@ -24,22 +24,24 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
     prefix = colorstr('autoanchor: ')
     print(f'\n{prefix}Analyzing anchors... ', end='')
     m = model.module.model[-1] if hasattr(model, 'module') else model.model[-1]  # Detect()
-    shapes = imgsz * dataset.shapes / dataset.shapes.max(1, keepdims=True)
+    # dataset.shapes: (N,2)，N是总的图片数量 这里根据label获取anchor的wh，label中的box需要根据imgsz缩放一下
+    shapes = imgsz * dataset.shapes / dataset.shapes.max(1, keepdims=True) # (N,2)
     scale = np.random.uniform(0.9, 1.1, size=(shapes.shape[0], 1))  # augment scale
-    wh = torch.tensor(np.concatenate([l[:, 3:5] * s for s, l in zip(shapes * scale, dataset.labels)])).float()  # wh
+    wh = torch.tensor(np.concatenate([l[:, 3:5] * s for s, l in zip(shapes * scale, dataset.labels)])).float()  # wh  dataset.labels:(clas,xywh)
 
+    # 大概就是判断从label中获取的box和给定的anchors的符合程度的指标
     def metric(k):  # compute metric
-        r = wh[:, None] / k[None]
-        x = torch.min(r, 1. / r).min(2)[0]  # ratio metric
-        best = x.max(1)[0]  # best_x
-        aat = (x > 1. / thr).float().sum(1).mean()  # anchors above threshold
-        bpr = (best > 1. / thr).float().mean()  # best possible recall
+        r = wh[:, None] / k[None] # wh[:, None]:(M,1,2)； k[None]:(1,N,2)； r:(M,N,2)
+        x = torch.min(r, 1. / r).min(2)[0]  # ratio metric shape (M,N) 每个框长宽比最小值
+        best = x.max(1)[0]  # best_x  (M)
+        aat = (x > 1. / thr).float().sum(1).mean()  # anchors above threshold  这个从公式上看，表示每个box平均和aat个anchor相吻合
+        bpr = (best > 1. / thr).float().mean()  # best possible recall         和每个box最符合的anchor大于阈值的概率
         return bpr, aat
 
-    anchors = m.anchor_grid.clone().cpu().view(-1, 2)  # current anchors
+    anchors = m.anchor_grid.clone().cpu().view(-1, 2)  # current anchors  (N,2)这是从model.yaml中获取的anchors
     bpr, aat = metric(anchors)
     print(f'anchors/target = {aat:.2f}, Best Possible Recall (BPR) = {bpr:.4f}', end='')
-    if bpr < 0.98:  # threshold to recompute
+    if bpr < 0.98:  # threshold to recompute 吻合程度低，重新计算anchors
         print('. Attempting to improve anchors, please wait...')
         na = m.anchor_grid.numel() // 2  # number of anchors
         try:
@@ -50,14 +52,14 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
         if new_bpr > bpr:  # replace anchors
             anchors = torch.tensor(anchors, device=m.anchors.device).type_as(m.anchors)
             m.anchor_grid[:] = anchors.clone().view_as(m.anchor_grid)  # for inference
-            m.anchors[:] = anchors.clone().view_as(m.anchors) / m.stride.to(m.anchors.device).view(-1, 1, 1)  # loss
+            m.anchors[:] = anchors.clone().view_as(m.anchors) / m.stride.to(m.anchors.device).view(-1, 1, 1)  # m.anchors在class Model里归一了
             check_anchor_order(m)
             print(f'{prefix}New anchors saved to model. Update model *.yaml to use these anchors in the future.')
         else:
             print(f'{prefix}Original anchors better than new anchors. Proceeding with original anchors.')
     print('')  # newline
 
-
+# 用kmean聚类出n个anchors，并进化 gen 次
 def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=1000, verbose=True):
     """ Creates kmeans-evolved anchors from training dataset
 

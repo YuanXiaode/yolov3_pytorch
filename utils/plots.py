@@ -291,15 +291,16 @@ def plot_labels(labels, names=(), save_dir=Path(''), loggers=None):
     nc = int(c.max() + 1)  # number of classes
     x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height'])
 
-    # seaborn correlogram
-    sns.pairplot(x, corner=True, diag_kind='auto', kind='hist', diag_kws=dict(bins=50), plot_kws=dict(pmax=0.9))
+    # seaborn correlogram 画 4 x 4的多变量关系图
+    # corner=True: 只画左下角; diag_kind，diag_kws: 设置对角线图  ；kind, plot_kws：设置非对角图
+    sns.pairplot(x, corner=True, diag_kind='auto', kind='hist', diag_kws=dict(bins=50), plot_kws=dict(pmax=0.9)) # 这个厉害了，多变量画图
     plt.savefig(save_dir / 'labels_correlogram.jpg', dpi=200)
     plt.close()
 
     # matplotlib labels
     matplotlib.use('svg')  # faster
     ax = plt.subplots(2, 2, figsize=(8, 8), tight_layout=True)[1].ravel()
-    y = ax[0].hist(c, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8)
+    y = ax[0].hist(c, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8) #类别直方图
     # [y[2].patches[i].set_color([x / 255 for x in colors(i)]) for i in range(nc)]  # update colors bug #3195 
     ax[0].set_ylabel('instances')
     if 0 < len(names) < 30:
@@ -307,17 +308,17 @@ def plot_labels(labels, names=(), save_dir=Path(''), loggers=None):
         ax[0].set_xticklabels(names, rotation=90, fontsize=10)
     else:
         ax[0].set_xlabel('classes')
-    sns.histplot(x, x='x', y='y', ax=ax[2], bins=50, pmax=0.9)
-    sns.histplot(x, x='width', y='height', ax=ax[3], bins=50, pmax=0.9)
+    sns.histplot(x, x='x', y='y', ax=ax[2], bins=50, pmax=0.9) # xy关系图
+    sns.histplot(x, x='width', y='height', ax=ax[3], bins=50, pmax=0.9) # wh关系图
 
     # rectangles
     labels[:, 1:3] = 0.5  # center
     labels[:, 1:] = xywh2xyxy(labels[:, 1:]) * 2000
     img = Image.fromarray(np.ones((2000, 2000, 3), dtype=np.uint8) * 255)
     for cls, *box in labels[:1000]:
-        ImageDraw.Draw(img).rectangle(box, width=1, outline=colors(cls))  # plot
-    ax[1].imshow(img)
-    ax[1].axis('off')
+        ImageDraw.Draw(img).rectangle(box, width=1, outline=colors(cls))  # plot 在img上画框
+    ax[1].imshow(img)  # 将img放入subplots
+    ax[1].axis('off')  ## 所有label的框图，center固定为(0.5,0.5)
 
     for a in [0, 1, 2, 3]:
         for s in ['top', 'right', 'left', 'bottom']:

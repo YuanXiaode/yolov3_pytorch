@@ -15,11 +15,10 @@ from multiprocessing.pool import ThreadPool
 from tqdm import tqdm
 import glob
 import random
+import math
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from utils.autoanchor import kmean_anchors
 
-x = np.array([2,4,1])
-y = np.array([2,4,1])
-n = 9
-
-a = np.digitize(x,[2,3,4,5,6])
-print(a)
-
+kmean_anchors(verbose = False)

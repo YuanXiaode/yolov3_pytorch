@@ -84,17 +84,18 @@ def train(hyp, opt, device, tb_writer=None):
     if pretrained:
         with torch_distributed_zero_first(rank):
             weights = attempt_download(weights)  # download if not found locally
-        ckpt = torch.load(weights, map_location=device)  # load checkpoint
-        model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
+        ckpt = torch.load(weights, map_location=device)  # load checkpoint  map_location:在哪个device训练的模型，就要加载在对应device上，否则报错
+        model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create 创建模型
         exclude = ['anchor'] if (opt.cfg or hyp.get('anchors')) and not opt.resume else []  # exclude keys
         state_dict = ckpt['model'].float().state_dict()  # to FP32
         state_dict = intersect_dicts(state_dict, model.state_dict(), exclude=exclude)  # intersect
-        model.load_state_dict(state_dict, strict=False)  # load
+        model.load_state_dict(state_dict, strict=False)  # load       加载除了anchors的参数，anchors由model.yaml得到
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
     else:
         model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
     with torch_distributed_zero_first(rank):
-        check_dataset(data_dict)  # check
+        print(data_dict)
+        check_dataset(data_dict)  # check and download
     train_path = data_dict['train']
     test_path = data_dict['val']
 
@@ -108,7 +109,7 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Optimizer
     nbs = 64  # nominal batch size
-    accumulate = max(round(nbs / total_batch_size), 1)  # accumulate loss before optimizing
+    accumulate = max(round(nbs / total_batch_size), 1)  # accumulate loss before optimizing 计算accumulate次损失，才更新一次参数
     hyp['weight_decay'] *= total_batch_size * accumulate / nbs  # scale weight_decay
     logger.info(f"Scaled weight_decay = {hyp['weight_decay']}")
 
@@ -177,7 +178,7 @@ def train(hyp, opt, device, tb_writer=None):
     imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
     # DP mode
-    if cuda and rank == -1 and torch.cuda.device_count() > 1:
+    if cuda and rank == -1 and torch.cuda.device_count() > 1: #？ 这里DP，后面又DDP?
         model = torch.nn.DataParallel(model)
 
     # SyncBatchNorm
@@ -202,18 +203,18 @@ def train(hyp, opt, device, tb_writer=None):
                                        pad=0.5, prefix=colorstr('val: '))[0]
 
         if not opt.resume:
-            labels = np.concatenate(dataset.labels, 0)
+            labels = np.concatenate(dataset.labels, 0) # list -> narray
             c = torch.tensor(labels[:, 0])  # classes
             # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
             # model._initialize_biases(cf.to(device))
             if plots:
-                plot_labels(labels, names, save_dir, loggers)
+                plot_labels(labels, names, save_dir, loggers)  ## label分析
                 if tb_writer:
                     tb_writer.add_histogram('classes', c, 0)
 
             # Anchors
             if not opt.noautoanchor:
-                check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
+                check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz) # 检查anchors和label的相关程度，程度低就重新聚类
             model.half().float()  # pre-reduce anchor precision
 
     # DDP mode
