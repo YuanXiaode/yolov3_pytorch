@@ -71,7 +71,7 @@ def train(hyp, opt, device, tb_writer=None):
         wandb_logger = WandbLogger(opt, save_dir.stem, run_id, data_dict)
         loggers['wandb'] = wandb_logger.wandb
         data_dict = wandb_logger.data_dict
-        if wandb_logger.wandb:
+        if wandb_logger.wandb: # wandb_logger可能会重新加载data_dict和opt
             weights, epochs, hyp = opt.weights, opt.epochs, opt.hyp  # WandbLogger might update weights, epochs if resuming
 
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
@@ -86,7 +86,7 @@ def train(hyp, opt, device, tb_writer=None):
             weights = attempt_download(weights)  # download if not found locally
         ckpt = torch.load(weights, map_location=device)  # load checkpoint  map_location:在哪个device训练的模型，就要加载在对应device上，否则报错
         model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create 创建模型
-        exclude = ['anchor'] if (opt.cfg or hyp.get('anchors')) and not opt.resume else []  # exclude keys
+        exclude = ['anchor'] if (opt.cfg or hyp.get('anchors')) and not opt.resume else []  # exclude keys anchor用opt.cfg里的值，不用保存的值
         state_dict = ckpt['model'].float().state_dict()  # to FP32
         state_dict = intersect_dicts(state_dict, model.state_dict(), exclude=exclude)  # intersect
         model.load_state_dict(state_dict, strict=False)  # load       加载除了anchors的参数，anchors由model.yaml得到
@@ -202,7 +202,7 @@ def train(hyp, opt, device, tb_writer=None):
                                        world_size=opt.world_size, workers=opt.workers,
                                        pad=0.5, prefix=colorstr('val: '))[0]
 
-        if not opt.resume:
+        if not opt.resume: # resume 时，前面已经画过了
             labels = np.concatenate(dataset.labels, 0) # list -> narray
             c = torch.tensor(labels[:, 0])  # classes
             # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
@@ -223,7 +223,7 @@ def train(hyp, opt, device, tb_writer=None):
                     # nn.MultiheadAttention incompatibility with DDP https://github.com/pytorch/pytorch/issues/26698
                     find_unused_parameters=any(isinstance(layer, nn.MultiheadAttention) for layer in model.modules()))
 
-    # Model parameters
+    # Model parameters  (box loss gain)
     hyp['box'] *= 3. / nl  # scale to layers
     hyp['cls'] *= nc / 80. * 3. / nl  # scale to classes and layers
     hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
@@ -231,7 +231,7 @@ def train(hyp, opt, device, tb_writer=None):
     model.nc = nc  # attach number of classes to model
     model.hyp = hyp  # attach hyperparameters to model
     model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
-    model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
+    model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights  类别数越多，权重越小
     model.names = names
 
     # Start training
@@ -260,7 +260,7 @@ def train(hyp, opt, device, tb_writer=None):
             # Broadcast if DDP
             if rank != -1:
                 indices = (torch.tensor(dataset.indices) if rank == 0 else torch.zeros(dataset.n)).int()
-                dist.broadcast(indices, 0)
+                dist.broadcast(indices, 0) # 0号进程将 indices 广播出去，非0号经常接收indices
                 if rank != 0:
                     dataset.indices = indices.cpu().numpy()
 
@@ -269,6 +269,8 @@ def train(hyp, opt, device, tb_writer=None):
         # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(4, device=device)  # mean losses
+        # 查了一下资料，DistributedSampler 在torch1.2之后，多了shuffle功能来对数据进行random，random的
+        # 随机种子值就是epoch。因此需要修改self.epoch，从而保证每个epoch随机生成的indices是不一样的
         if rank != -1:
             dataloader.sampler.set_epoch(epoch)
         pbar = enumerate(dataloader)
@@ -287,7 +289,7 @@ def train(hyp, opt, device, tb_writer=None):
                 accumulate = max(1, np.interp(ni, xi, [1, nbs / total_batch_size]).round())
                 for j, x in enumerate(optimizer.param_groups):
                     # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
-                    x['lr'] = np.interp(ni, xi, [hyp['warmup_bias_lr'] if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
+                    x['lr'] = np.interp(ni, xi, [hyp['warmup_bias_lr'] if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])  ## j==2 for bias
                     if 'momentum' in x:
                         x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
 
@@ -306,7 +308,7 @@ def train(hyp, opt, device, tb_writer=None):
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
                 if opt.quad:
-                    loss *= 4.
+                    loss *= 4.  # 看compute_loss，loss的定义为(allLose * bs)，对于opt.quad，bs是设置的bs的四分之一，因此这里乘4
 
             # Backward
             scaler.scale(loss).backward()
@@ -332,14 +334,14 @@ def train(hyp, opt, device, tb_writer=None):
                     f = save_dir / f'train_batch{ni}.jpg'  # filename
                     Thread(target=plot_images, args=(imgs, targets, paths, f), daemon=True).start()
                     if tb_writer:
-                        tb_writer.add_graph(torch.jit.trace(de_parallel(model), imgs, strict=False), [])  # model graph
+                        # torch.jit.trace:追踪输入imgs forward一次的路径，得到静态图结构
+                        tb_writer.add_graph(torch.jit.trace(de_parallel(model), imgs, strict=False), [])  # model graph torch.jit:转化为语言无关的TorchScript模型
                         # tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
                 elif plots and ni == 10 and wandb_logger.wandb:
                     wandb_logger.log({"Mosaics": [wandb_logger.wandb.Image(str(x), caption=x.name) for x in
                                                   save_dir.glob('train*.jpg') if x.exists()]})
 
             # end batch ------------------------------------------------------------------------------------------------
-        # end epoch ----------------------------------------------------------------------------------------------------
 
         # Scheduler
         lr = [x['lr'] for x in optimizer.param_groups]  # for tensorboard
@@ -479,7 +481,7 @@ if __name__ == '__main__':
     parser.add_argument('--entity', default=None, help='W&B entity')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--quad', action='store_true', help='quad dataloader')
+    parser.add_argument('--quad', action='store_true', help='quad dataloader')  # 四图合1
     parser.add_argument('--linear-lr', action='store_true', help='linear LR')
     parser.add_argument('--label-smoothing', type=float, default=0.0, help='Label smoothing epsilon')
     parser.add_argument('--upload_dataset', action='store_true', help='Upload dataset as W&B artifact table')

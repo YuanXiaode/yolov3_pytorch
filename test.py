@@ -82,7 +82,7 @@ def test(data,
     # Logging
     log_imgs = 0
     if wandb_logger and wandb_logger.wandb:
-        log_imgs = min(wandb_logger.log_imgs, 100)
+        log_imgs = min(wandb_logger.log_imgs, 100)  ## 16
     # Dataloader
     if not training:
         if device.type != 'cpu':
@@ -151,7 +151,7 @@ def test(data,
 
             # W&B logging - Media Panel Plots
             if len(wandb_images) < log_imgs and wandb_logger.current_epoch > 0:  # Check for test operation
-                if wandb_logger.current_epoch % wandb_logger.bbox_interval == 0:
+                if wandb_logger.current_epoch % wandb_logger.bbox_interval == 0:  ## bbox_interval 在train.p中给定，或者在wandb_utils.py中设置为 epochs // 10
                     box_data = [{"position": {"minX": xyxy[0], "minY": xyxy[1], "maxX": xyxy[2], "maxY": xyxy[3]},
                                  "class_id": int(cls),
                                  "box_caption": "%s %.3f" % (names[cls], conf),
@@ -159,7 +159,7 @@ def test(data,
                                  "domain": "pixel"} for *xyxy, conf, cls in pred.tolist()]
                     boxes = {"predictions": {"box_data": box_data, "class_labels": names}}  # inference-space
                     wandb_images.append(wandb_logger.wandb.Image(img[si], boxes=boxes, caption=path.name))
-            wandb_logger.log_training_progress(predn, path, names) if wandb_logger and wandb_logger.wandb_run else None
+            wandb_logger.log_training_progress(predn, path, names) if wandb_logger and wandb_logger.wandb_run else None  ## 保存 result_table
 
             # Append to pycocotools JSON dictionary
             if save_json:
@@ -253,7 +253,7 @@ def test(data,
             val_batches = [wandb_logger.wandb.Image(str(f), caption=f.name) for f in sorted(save_dir.glob('test*.jpg'))]
             wandb_logger.log({"Validation": val_batches})
     if wandb_images:
-        wandb_logger.log({"Bounding Box Debugger/Images": wandb_images})
+        wandb_logger.log({"Bounding Box Debugger/Images": wandb_images})  ## 将字典wandb_images保存进 log_dict["Bounding Box Debugger/Images"]里
 
     # Save JSON
     if save_json and len(jdict):

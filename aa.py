@@ -19,6 +19,10 @@ import math
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from utils.autoanchor import kmean_anchors
 
-kmean_anchors(verbose = False)
+a = {"Age":12,"name":"Tom"}
+b = {"Age":14,"name":"Tom2"}
+
+c = [a,b]
+
+for k ,v in c.it

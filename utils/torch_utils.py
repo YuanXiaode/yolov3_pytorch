@@ -305,6 +305,7 @@ class ModelEMA:
                     v *= d  ## v_ema = d * v_ema + (1 - d) * v_new
                     v += (1. - d) * msd[k].detach()
 
+    # 大概意思就是有些模型变量每个epoch都会变，需要同步在ema上更新
     def update_attr(self, model, include=(), exclude=('process_group', 'reducer')):
         # Update EMA attributes
         copy_attr(self.ema, model, include, exclude)

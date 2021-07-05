@@ -304,13 +304,13 @@ def labels_to_class_weights(labels, nc=80):
     weights /= weights.sum()  # normalize
     return torch.from_numpy(weights)
 
-
+# 图像权重 = （图像某类别label * 类别权重） 求和
 def labels_to_image_weights(labels, nc=80, class_weights=np.ones(80)):
     # Produces image weights based on class_weights and image contents
     class_counts = np.array([np.bincount(x[:, 0].astype(np.int), minlength=nc) for x in labels])
     image_weights = (class_weights.reshape(1, nc) * class_counts).sum(1)
     # index = random.choices(range(n), weights=image_weights, k=1)  # weight image sample
-    return image_weights
+    return image_weights # (N)
 
 
 def coco80_to_coco91_class():  # converts 80-index (val2014) to 91-index (paper)
