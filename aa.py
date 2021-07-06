@@ -19,10 +19,10 @@ import math
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from utils.general import bbox_iou
 
-a = {"Age":12,"name":"Tom"}
-b = {"Age":14,"name":"Tom2"}
+pbox = torch.ones((5,4))
+tbox = torch.ones((5,4))
+iou = bbox_iou(pbox.T, tbox, x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
 
-c = [a,b]
-
-for k ,v in c.it
+print(iou.shape)
